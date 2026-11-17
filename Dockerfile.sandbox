@@ -1,0 +1,108 @@
+# Image used to run `bash` commands for a channel, one persistent container per
+# thread by default. Only that channel's workspace is mounted, so a shell here cannot
+# reach another channel, the harness source, or the credential store.
+#
+#   docker build -f Dockerfile.sandbox -t seneschal-sandbox:latest .
+#
+# The harness also mounts, read-only unless a collection is assigned `rw`:
+# /skills/channel and /skills/<collection> (that channel's skills), and
+# /global/bin (the operator's tools, on PATH after /workspace/bin). Tools you
+# put in data/shared/global-bin must run on THIS image (scripts, or Linux
+# binaries for its architecture).
+#
+# Add whatever your channels actually need; each active thread multiplies
+# resource usage. /repos lives in the container layer, not a Docker volume.
+# The CLIs need Node. Copy only its runtime from the same pinned official image the harness runs on
+# (Debian Bookworm, glibc); npm, corepack, compilers and headers stay in build stages.
+# Keep the Node version in step with Dockerfile.harness.
+ARG NODE_VERSION=24.22.0
+
+# Versioned, SHA-256-verified service CLIs and Go; extraction tools stay out of runtime.
+# dpkg selects the target image architecture, including under buildx emulation.
+FROM debian:bookworm-slim AS service-clis
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+  && rm -rf /var/lib/apt/lists/*
+COPY scripts/install-harness-clis.sh /tmp/install-harness-clis.sh
+RUN sh /tmp/install-harness-clis.sh
+COPY scripts/install-go.sh /tmp/install-go.sh
+RUN sh /tmp/install-go.sh
+
+# Explicitly install pinned Wrangler with lifecycle scripts off, retaining its existing lockfile.
+# Platform packages resolve for the target architecture.
+FROM node:${NODE_VERSION}-bookworm-slim AS wrangler
+WORKDIR /opt/wrangler
+COPY scripts/wrangler/package.json scripts/wrangler/package-lock.json ./
+RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund wrangler@4.151.1 && npm cache clean --force
+
+# Sandbox-only upstream npm CLIs. Keep target-platform optional packages (AgentMail and impit), but
+# disable general lifecycle scripts. Camoufox's SQLite binding is the one required native build;
+# compile it against this exact Node runtime instead of fetching an unchecked prebuilt binary.
+FROM node:${NODE_VERSION}-bookworm-slim AS sandbox-clis
+WORKDIR /opt/sandbox-clis
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+  && npm install --omit=dev --ignore-scripts --no-audit --no-fund agentmail-cli@1.10.0 camoufox-cli@0.7.6 \
+  && npm_config_build_from_source=true npm_config_nodedir=/usr/local npm rebuild better-sqlite3 \
+  && npm cache clean --force
+
+FROM debian:bookworm-slim
+
+# gnuplot-nox renders straight to PNG with no X server and costs a few MB,
+# which makes "chart this and post it" work in a bash channel out of the box.
+# Python 3 ships for scripts; for matplotlib or other extra packages, give the
+# channel its own image — see sandbox.image — rather than growing this one for everybody.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git jq ripgrep gnupg less gnuplot-nox python3 util-linux \
+  && mkdir -p -m 755 /etc/apt/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update && apt-get install -y --no-install-recommends gh \
+  && apt-get purge -y gnupg && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=service-clis /usr/local/bin/ /usr/local/bin/
+COPY --from=service-clis /usr/local/share/doc/linear/ /usr/local/share/doc/linear/
+COPY --from=service-clis /usr/local/go/ /usr/local/go/
+# Wrangler for the Cloudflare deployer, with the Node runtime it needs. Credentials are the channel's own
+# (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID from its env file), never baked in. Telemetry off.
+COPY --from=wrangler /usr/local/bin/node /usr/local/bin/node
+COPY --from=wrangler /opt/wrangler /opt/wrangler
+RUN ln -s /opt/wrangler/node_modules/.bin/wrangler /usr/local/bin/wrangler
+ENV WRANGLER_SEND_METRICS=false
+
+COPY --from=sandbox-clis /opt/sandbox-clis /opt/sandbox-clis
+# Use an image-owned browser directory, not root's home or the mounted workspace. The supported
+# upstream Linux installer downloads the browser, default addon and GeoIP data and installs system
+# libraries as root at build time. Runtime users need neither sudo nor a first-run browser download.
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
+RUN ln -s /opt/sandbox-clis/node_modules/.bin/agentmail /usr/local/bin/agentmail \
+  && ln -s /opt/sandbox-clis/node_modules/.bin/camoufox-cli /usr/local/bin/camoufox-cli \
+  && camoufox-cli install --with-deps \
+  && test -x /opt/camoufox/camoufox-bin \
+  && test -s /opt/camoufox/GeoLite2-City.mmdb \
+  && test -s /opt/camoufox/addons/UBO/manifest.json \
+  && chmod -R a+rX /opt/camoufox \
+  && rm -rf /var/lib/apt/lists/*
+
+# Use the bundled compiler rather than silently downloading another toolchain.
+# Projects needing a newer Go can explicitly override GOTOOLCHAIN at runtime.
+ENV PATH=/usr/local/go/bin:${PATH} \
+    GOTOOLCHAIN=local
+
+# Unprivileged by default. The workspace bind mount is owned by the host user,
+# so set sandbox.user in config if you hit permission errors writing to it.
+RUN useradd --create-home --uid 1000 sandbox && mkdir -m 1777 /repos
+USER sandbox
+
+# Check PATH and permissions as the normal runtime user, without credentials or persistent config.
+# Camoufox 0.7.6 supports --version rather than --help.
+RUN home="$(mktemp -d)" \
+  && (cd "$home" && env -i HOME="$home" PATH="$PATH" \
+      WRANGLER_SEND_METRICS=false CAMOUFOX_INSTALL_DIR="$CAMOUFOX_INSTALL_DIR" \
+      sh -ec 'wrangler --version; agentmail --version; camoufox-cli --version') \
+  && rm -rf "$home"
+
+WORKDIR /workspace
+CMD ["bash"]

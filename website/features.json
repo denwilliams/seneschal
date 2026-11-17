@@ -1,0 +1,486 @@
+[
+  {
+    "id": "conversation",
+    "title": "A capable colleague, right in Slack",
+    "intro": "Talk in threads, bring context along, and keep control of what gets posted.",
+    "features": [
+      {
+        "id": "threads",
+        "title": "Thread-first conversations",
+        "description": "Mention the assistant once, then continue naturally in the thread. Configurable history backfill and durable conversations keep follow-ups in context.",
+        "sources": [
+          "src/slack/app.ts",
+          "src/slack/history.ts",
+          "src/agent/durable/channel-store.ts"
+        ]
+      },
+      {
+        "id": "interaction",
+        "title": "More than a mention",
+        "description": "Use configured reaction triggers, forward a Slack message to an assistant, or respond through interactive buttons. Messages arriving during work can steer the ongoing turn.",
+        "sources": [
+          "src/slack/reactions.ts",
+          "src/slack/interactions.ts",
+          "src/agent/steering.ts"
+        ]
+      },
+      {
+        "id": "slack-search",
+        "title": "Search with your own visibility",
+        "description": "Opt-in Slack search uses the speaking person’s stored user token, not the bot token. Missing credentials never fall back to a broader identity.",
+        "sources": [
+          "src/agent/slack-tools.ts"
+        ]
+      },
+      {
+        "id": "posting",
+        "title": "Deliberate publishing",
+        "description": "Post messages, attach generated files, and batch notifications. Posting to other channels requires configured permission; posting as a person has a separate review and held-post pipeline.",
+        "sources": [
+          "src/agent/post-tools.ts",
+          "src/agent/post-as-tools.ts",
+          "src/agent/notifications.ts",
+          "src/agent/post-as-guard.ts"
+        ]
+      },
+      {
+        "id": "profile",
+        "title": "A personal Slack presence",
+        "description": "An explicitly authorized channel can update one designated user’s status and profile picture. This needs a user token with profile-write scope and is separate from search or posting.",
+        "sources": [
+          "src/agent/slack-profile-tools.ts",
+          "docs/slack-profile.md"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "memory",
+    "title": "Context that earns its place",
+    "intro": "Keep facts, reusable procedures and shared reference material distinct.",
+    "features": [
+      {
+        "id": "channel-memory",
+        "title": "Channel memory & shared knowledge",
+        "description": "Recall durable facts by topic. Each channel has its own memory; shared account memory and knowledge bases cross boundaries only under their configured sharing rules.",
+        "sources": [
+          "src/agent/memory.ts",
+          "src/agent/knowledge-tools.ts",
+          "src/agent/knowledge-base.ts"
+        ]
+      },
+      {
+        "id": "dreams",
+        "title": "Nightly memory maintenance",
+        "description": "The dream pass revisits a channel’s conversations, consolidates repeated facts, captures missed learnings and archives forgotten entries. Journals and run logs make the pass inspectable.",
+        "sources": [
+          "src/agent/dream.ts",
+          "src/agent/memory-store.ts"
+        ]
+      },
+      {
+        "id": "orientation",
+        "title": "Recent-conversation orientation",
+        "description": "A rolling list of thread summaries gives fresh turns a view of recent activity. It is orientation context, not a replacement for durable memory.",
+        "sources": [
+          "src/agent/recent-conversations.ts"
+        ]
+      },
+      {
+        "id": "skills",
+        "title": "Skills that agents can learn",
+        "description": "Save and revise repeatable procedures in the Agent Skills format. Descriptions are discoverable in context; full instructions load on demand. Built-in guidance helps agents write useful skills.",
+        "sources": [
+          "src/agent/skills.ts",
+          "skills/writing-skills/SKILL.md"
+        ]
+      },
+      {
+        "id": "skill-sharing",
+        "title": "Share a procedure, not a permission",
+        "description": "Operators assign skill collections read-only or read-write. Agents can publish versioned skills to a library with permission; another channel reads and installs its own copy.",
+        "sources": [
+          "src/workspace/collections.ts",
+          "src/agent/library-tools.ts",
+          "src/agent/library.ts"
+        ]
+      },
+      {
+        "id": "documents",
+        "title": "A searchable document shelf",
+        "description": "Read attachments and extracted PDF text, file originals with metadata and checksums, then search and retrieve them through the document library. Operators can configure the library’s storage location.",
+        "sources": [
+          "src/agent/attachments.ts",
+          "src/agent/local-pdf.ts",
+          "src/agent/document-tools.ts",
+          "src/agent/documents.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tools",
+    "title": "From research to finished work",
+    "intro": "Give each channel the tools it actually needs, rather than one global toolbox.",
+    "features": [
+      {
+        "id": "web",
+        "title": "Web research & bounded downloads",
+        "description": "Search with a configured provider, read web pages, and stage PDFs or binary downloads. Credential-free fetching checks redirects and blocks private network addresses by default.",
+        "sources": [
+          "src/agent/web-tools.ts",
+          "src/agent/web.ts"
+        ]
+      },
+      {
+        "id": "files",
+        "title": "Workspace files without a shell",
+        "description": "Read, write, edit, list and search files; manage workspace files without bash. Save actual tool results directly to a workspace file instead of reconstructing long responses.",
+        "sources": [
+          "src/agent/file-tools.ts",
+          "src/agent/workspace-file-tools.ts",
+          "src/agent/tool-output-file.ts"
+        ]
+      },
+      {
+        "id": "data",
+        "title": "Lists, state & SQLite",
+        "description": "Keep typed channel lists, a revisioned structured state object, and workspace SQLite databases. Use these for trackers and durable work data rather than hiding everything in chat.",
+        "sources": [
+          "src/agent/list-tools.ts",
+          "src/agent/state-tools.ts",
+          "src/agent/sqlite-tools.ts"
+        ]
+      },
+      {
+        "id": "outputs",
+        "title": "Images, charts & slide decks",
+        "description": "Inspect images, generate images with a configured provider, produce charts, and build HTML slide decks that can be attached in Slack. Availability depends on enabled tools and provider credentials.",
+        "sources": [
+          "src/agent/image-tools.ts",
+          "src/agent/image-generation.ts",
+          "src/agent/chart-tools.ts",
+          "src/agent/slide-tools.ts"
+        ]
+      },
+      {
+        "id": "connectors",
+        "title": "MCP connectors & OAuth",
+        "description": "Connect remote HTTP or local stdio MCP services. A catalogue entry does not enable access: assign connectors to channels, filter exposed tools, and authorize OAuth where required.",
+        "sources": [
+          "src/agent/connectors.ts",
+          "src/agent/connectorOAuth.ts",
+          "src/agent/consoleConnectorOAuth.ts"
+        ]
+      },
+      {
+        "id": "cli",
+        "title": "Reviewed command-line tools",
+        "description": "Expose selected CLI operations through exec with positional-only argument wildcards, or explicitly opt a trusted executable into all arguments including flags with allowAllArgs. Whole-CLI trust includes that executable’s execution capabilities. A shared CLI registry stays opt-in per channel; shared-script restrictions remain separate.",
+        "sources": [
+          "src/agent/exec-tools.ts",
+          "src/config/schema.ts",
+          "src/agent/restricted-exec.ts",
+          "src/agent/shared-tool-tools.ts"
+        ]
+      },
+      {
+        "id": "browser",
+        "title": "Opt-in browser automation",
+        "description": "The harness image bundles Playwright CLI and Chromium. A trusted QA channel can receive a restrictive exec command for navigation, inspection and screenshots; enabling a browser is a network-capable action.",
+        "sources": [
+          "Dockerfile.harness",
+          "config/harness.example.yaml"
+        ]
+      },
+      {
+        "id": "capabilities",
+        "title": "Ask for a capability",
+        "description": "Discover safe catalogue metadata and request connectors or CLI tools through an admin approval lifecycle. New capabilities need reviewed provisioning and enablement, not autonomous installation.",
+        "sources": [
+          "src/agent/capability-tools.ts",
+          "docs/capability-requests.md"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "automation",
+    "title": "Useful even between conversations",
+    "intro": "Schedule follow-ups, monitor quietly, and make background work visible.",
+    "features": [
+      {
+        "id": "schedules",
+        "title": "One-off & recurring work",
+        "description": "Create, update and cancel cron schedules or one-time tasks. One-off check-backs can return to their originating thread. Timezones, minimum intervals and opt-in cron catch-up keep timing explicit.",
+        "sources": [
+          "src/agent/schedule-tools.ts",
+          "src/agent/schedules.ts",
+          "src/slack/scheduler.ts"
+        ]
+      },
+      {
+        "id": "heartbeats",
+        "title": "Quiet channel heartbeats",
+        "description": "Maintain an opt-in monitoring prompt and interval per channel. Heartbeats use existing channel tools, skip missed or overlapping ticks, and post only through explicit notification tools. Recurring usage is tracked separately.",
+        "sources": [
+          "src/agent/heartbeat-tools.ts",
+          "docs/heartbeats.md"
+        ]
+      },
+      {
+        "id": "jobs",
+        "title": "Jobs & task tracking",
+        "description": "Track substantive work with statuses and reference links. Durable jobs persist progress and checkpoints; scheduled run ledgers record successful, failed and interrupted outcomes.",
+        "sources": [
+          "src/agent/job-tools.ts",
+          "src/jobs",
+          "src/tasks"
+        ]
+      },
+      {
+        "id": "gated-work",
+        "title": "Gated task workflows",
+        "description": "Declare an ordered pipeline with plain-language acceptance gates. Workers submit output; the parent independently decides each gate and explicitly starts the next step. Definitions and rejected work can be corrected with audit history.",
+        "sources": [
+          "docs/TASK_WORKFLOWS.md",
+          "src/tasks/workflow-tools.ts"
+        ]
+      },
+      {
+        "id": "teams",
+        "title": "Subagents & task transfer",
+        "description": "Delegate focused work to configured roles with model and approval policies. Role tools are intersected with the channel’s permissions. Explicit channel-to-channel transfer returns completion to the source.",
+        "sources": [
+          "src/agent/subagents.ts",
+          "src/agent/subagent-tools.ts",
+          "src/agent/delegation-tools.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "factory",
+    "title": "An issue-to-PR software factory",
+    "intro": "A durable engineering pipeline with independent review and bounded autonomy.",
+    "features": [
+      {
+        "id": "pipeline",
+        "title": "Triage → code → review",
+        "description": "Configured agent teams carry GitHub issues through implementation and independent review. Workflow stages, retries and review rounds survive restarts and stay linked to the issue and pull request.",
+        "sources": [
+          "src/factory/workflow",
+          "docs/FACTORY_WORKFLOW_DESIGN.md"
+        ]
+      },
+      {
+        "id": "intake",
+        "title": "Trusted issue intake & Jira tracking",
+        "description": "Opt-in intake watches configured repositories and holds untrusted authors for release. Jira Cloud factories can use ACLI for work tracking while keeping code and PRs on GitHub.",
+        "sources": [
+          "src/factory/workflow",
+          "docs/JIRA_WORK_TRACKING.md"
+        ]
+      },
+      {
+        "id": "merge-gates",
+        "title": "Review-bound merge gates",
+        "description": "Cautious, balanced and autonomous policies bound automation. Risk, sensitive paths, required checks and the exact reviewed commit gate merging; human approvals are enforced by runtime identity, not comment text.",
+        "sources": [
+          "src/factory/workflow",
+          "config/harness.example.yaml"
+        ]
+      },
+      {
+        "id": "factory-controls",
+        "title": "Return feedback & recover a run",
+        "description": "Request changes on a factory PR to return it through implementation and review. Authorized operators can answer questions, retry failed stages or abort. Conflict repair stays on the existing branch and needs fresh review.",
+        "sources": [
+          "src/slack/factory-clicks.ts",
+          "src/slack/factory-request-changes.test.ts",
+          "factory-skills/factory-implementation/SKILL.md"
+        ]
+      },
+      {
+        "id": "delivery",
+        "title": "Controlled deployment & integrations",
+        "description": "An optional Cloudflare deployer requires approval for a named environment and exact commit. The opt-in factory MCP adapter exposes scoped factory operations; writes need console actions enabled and appropriate access protection.",
+        "sources": [
+          "agent-set-skills/software_factory/cloudflare-deploy/SKILL.md",
+          "docs/factory-mcp.md"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "console",
+    "title": "See what your assistants are doing",
+    "intro": "An optional operator console, separate from this public website.",
+    "features": [
+      {
+        "id": "live-console",
+        "title": "Live conversations & activity",
+        "description": "Browse the cross-channel activity feed, thread tree, transcripts and streamed progress. A timeline separates parent and subagent work. Direct-message content is withheld from monitoring views.",
+        "sources": [
+          "src/console2/activity.ts",
+          "src/console2/transcript.ts",
+          "src/console2/timeline.ts",
+          "docs/activity-feed.md"
+        ]
+      },
+      {
+        "id": "visibility",
+        "title": "Tools, context & usage visibility",
+        "description": "Inspect models, context-window use, tokens and reported cost, including usage by activity. See execution boundaries, enabled tools, connector status, skills, state, memory, schedules, approvals and recovery holds.",
+        "sources": [
+          "src/console2/session.ts",
+          "src/console2/execution.ts",
+          "src/console2/tools.ts",
+          "src/console2/state.ts"
+        ]
+      },
+      {
+        "id": "topic-usage",
+        "title": "An unobtrusive usage indicator",
+        "description": "Optionally show account-wide recorded token and cost totals for rolling one-hour and 24-hour windows in one public channel’s topic. Human-written topics are left untouched; the bot needs a specific Slack topic-write scope.",
+        "sources": ["src/slack/topic-usage.ts"]
+      },
+      {
+        "id": "factory-console",
+        "title": "Factory dashboard & run controls",
+        "description": "See issues, PRs, merges and detailed workflow attempts. Optional console actions allow selected run controls and list editing; they do not replace Slack merge authorization.",
+        "sources": [
+          "src/console2/factory.ts",
+          "src/console2/workflows.ts",
+          "src/console2/actions.ts"
+        ]
+      },
+      {
+        "id": "workspace",
+        "title": "Workspace & database inspection",
+        "description": "Browse workspace metadata and bounded read-only SQLite snapshots through the console’s access boundary. Symlinks are not followed and direct-message workspaces are withheld.",
+        "sources": [
+          "src/console2/workspace.ts"
+        ]
+      },
+      {
+        "id": "artifacts",
+        "title": "Share generated browser artifacts",
+        "description": "Optionally serve only each channel’s artifacts folder with stable links. Artifacts run in an opaque sandboxed origin; normal workspace files, private attachments and transcripts are not published through artifact hosting.",
+        "sources": [
+          "src/artifacts",
+          "README.md"
+        ]
+      },
+      {
+        "id": "admin",
+        "title": "Configuration & secret administration",
+        "description": "Edit configuration with validation, backups and reload warnings. Secret administration is write-only with supervised restart; optional scoped configurator roles apply separate runtime-enforced edit policies.",
+        "sources": [
+          "src/console2/admin.ts",
+          "src/console2/secrets.ts",
+          "src/agent/configurator-tools.ts",
+          "docs/secret-admin.md"
+        ]
+      },
+      {
+        "id": "pwa",
+        "title": "Desktop, mobile & installable",
+        "description": "The console supports light and dark themes and an installable app shell. Live API data is never cached for offline use; Cloudflare Access-protected shells are not cached either.",
+        "sources": [
+          "web/console2/src",
+          "README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "control",
+    "title": "Your data. Explicit boundaries.",
+    "intro": "Designed for a trusted home or small-team installation, not hostile multi-tenancy.",
+    "features": [
+      {
+        "id": "isolation",
+        "title": "Per-channel isolation",
+        "description": "Each channel has its own workspace, memory, tools, skills and connectors. File tools resolve real paths against allowed roots. Sharing, cross-channel memory reads and narrow workspace symlink targets are explicit operator choices.",
+        "sources": [
+          "src/agent/jail.ts",
+          "src/workspace/resolve.ts"
+        ]
+      },
+      {
+        "id": "permissions",
+        "title": "Expiring permission grants",
+        "description": "Tools and model access are allowlisted per channel. Agents can request configured capabilities with human approval and bounded grant durations; a grant is not a new account-wide permission.",
+        "sources": [
+          "src/agent/grants.ts",
+          "src/agent/permission-tools.ts",
+          "src/agent/model-tools.ts"
+        ]
+      },
+      {
+        "id": "sandboxes",
+        "title": "Explicit execution boundaries",
+        "description": "Choose host bash, Docker, opt-in Kiri 0.2.1+ via its native CLI, or Apple Containers on supported macOS. Container lifecycles retain isolated checkouts, enforce configured resources and protect active work. Kiri requires runtime setup and host smoke testing; interrupted executions are conservatively retained until stopped. Host bash is not a filesystem jail.",
+        "sources": [
+          "src/agent/sandbox.ts",
+          "src/agent/sandbox-lifecycle.ts",
+          "src/agent/sandbox-kiri.ts",
+          "docs/kiri-sandbox.md",
+          "docs/apple-containers.md"
+        ]
+      },
+      {
+        "id": "models",
+        "title": "Choose & switch models",
+        "description": "Use configured API providers, supported subscription OAuth, or local OpenAI-compatible servers. Agents can list and switch allowed models; credentials are account-level and thread model choices persist.",
+        "sources": [
+          "src/agent/model-providers.ts",
+          "src/agent/model-tools.ts",
+          "src/agent/model-state.ts"
+        ]
+      },
+      {
+        "id": "secrets",
+        "title": "Scoped credentials & secret backends",
+        "description": "Layer global and per-channel secrets without putting values in prompts. Optional macOS Keychain and OpenBao backends support managed credentials; subagent GitHub token overrides separate role identities.",
+        "sources": [
+          "src/agent/credentials.ts",
+          "docs/macos-keychain.md",
+          "docs/openbao.md"
+        ]
+      },
+      {
+        "id": "recovery",
+        "title": "Durable conversations & recovery",
+        "description": "Per-channel SQLite conversation stores retain work across restarts. Recovery rechecks current user, tool and model access; interrupted external effects are reported rather than blindly repeated. Slack delivery reconciles previously sent replies.",
+        "sources": [
+          "src/agent/recovery.ts",
+          "src/agent/durable/channel-store.ts",
+          "src/slack/delivery.ts"
+        ]
+      },
+      {
+        "id": "self-host",
+        "title": "Self-host, back up & diagnose",
+        "description": "Run on a Raspberry Pi, Docker or a supported native host using Node 22.19+. Back up runtime data with the supported backup procedure. Doctor checks, health/status endpoints, usage records and limitation reporting help operators diagnose problems.",
+        "sources": [
+          "src/backup.ts",
+          "src/cli/doctor.ts",
+          "src/agent/feedback-tools.ts",
+          "src/console2/tasks.ts"
+        ]
+      },
+      {
+        "id": "access",
+        "title": "Protect the operator surface",
+        "description": "The console has no built-in login by default. Opt-in Cloudflare Access JWT validation checks sessions server-side; otherwise use an authenticated proxy or private network. A tunnel alone is not authentication.",
+        "sources": [
+          "src/console2/handler.ts",
+          "src/artifacts",
+          "README.md"
+        ]
+      }
+    ]
+  }
+]

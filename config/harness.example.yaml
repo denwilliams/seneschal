@@ -1,0 +1,975 @@
+# Seneschal — example configuration
+#
+# Copy to config/harness.yaml and edit.
+#
+# The rule to keep in mind: channels are isolated by default. Memory, skills,
+# connectors, tools and files belong to one channel and do not leak to another.
+# The only thing shared out of the box is the account knowledge base. Everything
+# else crosses a boundary only because a line below says so.
+
+name: Home Harness
+dataDir: ./data
+# Optional document library override; default: <dataDir>/shared/documents.
+# Absolute paths are used directly; relative paths resolve against the repo root.
+# Stop the harness and copy the whole library before changing this; no automatic migration.
+# External libraries need a separate backup (built-in backups archive only dataDir).
+# documentsDir: /mnt/library/harness-documents
+
+# Optional OpenBao KV v2 imports. Values never go in YAML or process.env.
+# See docs/openbao.md for bootstrap, least-privilege policies, CLI and Admin UI.
+# openbao:
+#   address: https://bao.example.net
+#   tokenFile: /run/secrets/harness-openbao-token # private read-only runtime token
+#   # adminTokenFile: /run/secrets/harness-openbao-admin-token # opt-in web Admin writes
+#   acceptHostExecutionRisk: false # strict default; true trusts host access to token files, process memory and ALL backend scopes
+#   mount: secret
+#   prefix: harness
+#   globalChannel: [SEARCH_KEY]
+#   channels:
+#     C123ABC: [GITHUB_TOKEN]
+#   mainProcess: [SLACK_BOT_TOKEN, SLACK_APP_TOKEN, MODEL_KEY]
+#   providerKeys:
+#     openai: MODEL_KEY
+# OpenBao requires container bash and forbids host exec/sharedTools unless its own risk is explicitly accepted.
+# Keychain acceptance does NOT accept OpenBao risk (and vice versa). See docs/openbao.md.
+# Works without Keychain, including unattended LaunchDaemon startup (docs/openbao.md).
+
+# Optional native macOS Keychain backend. Names only, never values/passwords.
+# See docs/macos-keychain.md for the private helper install and Admin setup.
+# keychain:
+#   helperPath: /Users/harness/.local/libexec/harness-keychain/helper
+#   namespace: home
+#   adminWrites: true
+#   acceptHostExecutionRisk: false # strict default; true trusts host execution with ALL Keychain scopes
+#   cache: { ttlMs: 60000, maxEntries: 256, maxBytes: 4194304 } # any 0 disables caching
+#   globalChannel: [SHARED_API_KEY]
+#   channels: { C0123456789: [GITHUB_TOKEN] }
+#   mainProcess: [SLACK_BOT_TOKEN, SLACK_APP_TOKEN, OPENAI_API_KEY]
+#   providerKeys: { openai: OPENAI_API_KEY }
+
+# Optional web server: one block, one port. It serves the read-only console,
+# /health, /api/status (task state as JSON) and, with `artifacts: true`, each
+# channel's `workspace/artifacts/` files at
+# <baseUrl>/channels/<Slack-channel-ID>/artifacts/<relative-path>. Authentication
+# is off by default: enable cloudflareAccess below, keep it on loopback, or use
+# an authenticating proxy/VPN (e.g. Tailscale). A tunnel alone is NOT authentication. `baseUrl` is the
+# browser-facing URL and may include the proxy path prefix, which need not
+# match the bind host/port. Use a fresh HTTPS console origin for OAuth, protect
+# all /oauth/* routes at the proxy, redact queries/bodies from all upstream logs.
+# See README cross-device OAuth for artifact sandbox and service-worker caveats.
+# webConsole:
+#   enabled: true
+#   host: 127.0.0.1
+#   port: 3012
+#   baseUrl: https://console.example.net
+#   # Optional application-side enforcement, even if the origin/tunnel is accidentally public.
+#   # Create a self-hosted Cloudflare Access app + operator Allow policy for the WHOLE console hostname.
+#   # Restart after changing these values. Missing/invalid enabled config refuses startup.
+#   # See README "Cloudflare Access session validation" for boundaries, key caching and setup.
+#   cloudflareAccess:
+#     enabled: true
+#     issuer: https://your-team.cloudflareaccess.com  # canonical team issuer; no trailing slash
+#     audience: YOUR_ACCESS_APPLICATION_AUD_TAG
+#   artifacts: true      # serve channel artifact files; default false
+#   historyLimit: 100    # completed tasks kept in each /api/status response
+#   # Let the console act on factory runs: retry, skip, restart a stage, abort, answer a question, start a run, poll now.
+#   # Every admitted console user can do this. Turn it on only when the console is on loopback or
+#   # behind your VPN / an authenticating proxy. It can never approve, decline or merge: those stay in Slack. Default false.
+#   actions: false
+#   # One factory MCP server on this same listener at <baseUrl>/mcp. Off by default.
+#   # Writes also require actions: true; merge/deploy approvals remain in Slack.
+#   # Access session validation does NOT apply to /mcp. Set its bearer or otherwise secure that transport.
+#   # The optional bearer protects ONLY /mcp, not console administration: secure all routes at the proxy.
+#   # See docs/factory-mcp.md for clients, permissions and Cloudflare/ChatGPT follow-up tests.
+#   mcp:
+#     enabled: true
+#     # bearerToken: ${FACTORY_MCP_TOKEN}  # omit for unauthenticated local clients
+#   oauth:
+#     callbackUrl: https://console.example.net/oauth/callback
+#     ttlSeconds: 600  # 60-900; pending sessions are invalidated on restart
+# Each opted-in HTTP connector also needs oauth.consoleCallback: true and
+# oauth.redirectUrl exactly equal to callbackUrl, registered with its provider.
+# Supported connectors get a Connect action on the channel web page; web requests
+# still require an allowed Slack user to approve their own matching browser.
+# Existing connectors stay on their manual/localhost redirects until migrated.
+
+# Secrets shared by every channel, layered over the process environment.
+# Per-channel files (below) override these. Keep provider API keys here or in
+# the real environment; put per-channel connector tokens in the channel's file.
+# envFile: ./secrets/global.env
+
+# Shared credential store, used by every channel — credentials belong to the
+# operator, not to a channel. Defaults to <dataDir>/auth.json.
+# Written by `npm run login`, which signs in to subscription providers
+# (openai-codex for ChatGPT, anthropic, github-copilot) as well as API keys.
+# Only set this to share a store with another tool, e.g. an existing pi login.
+# authPath: ~/.pi/agent/auth.json
+
+# OpenAI-compatible Chat Completions servers available as model providers.
+# Local servers usually ignore the API key, but keeping a dummy value marks the
+# provider configured. Channels can allow these with `models: [provider/*]`.
+# modelProviders:
+#   turbofieldfare:
+#     name: TurboFieldfare
+#     baseUrl: http://127.0.0.1:8080/v1
+#     apiKey: local
+#     compat:
+#       supportsReasoningEffort: false
+#       supportsStrictMode: false
+#       supportsUsageInStreaming: true
+#     models:
+#       - id: gemma-4-26b-a4b-it
+#         name: Gemma 4 26B-A4B IT
+#         reasoning: false
+#         contextWindow: 16384
+#         maxTokens: 4096
+
+# Checked once at startup. The harness refuses to boot if these are missing,
+# so a half-provisioned host fails loudly instead of halfway through a task.
+requires:
+  binaries: [git]
+  onMissing: fail
+
+# Opt-in: a human's matching added reaction asks the post's own assistant to
+# read its full text, without a mention. Explicitly configured channels only;
+# DMs obey normal policy. Requires reaction_added, reactions:read, users:read,
+# chat:write and bot access to the post. See README for setup and limitations.
+reactionTriggers:
+  enabled: false
+  emoji: robot_face # Slack name without colons; standard or custom emoji
+
+# Workspace-facing Slack shortcuts.
+shortcuts:
+  sendToAssistant:
+    # Channel name, #name, or Slack ID to use when the modal target is left blank.
+    # Empty means users must choose a target channel every time.
+    defaultChannel: ""
+
+# Applied to every channel unless the channel overrides them.
+defaults:
+  # API-key providers: deepseek-v4-pro, openai/gpt-5.4, anthropic/claude-opus-5
+  # Subscription providers (see authPath above): openai-codex/gpt-6-luna,
+  #   github-copilot/claude-sonnet-5
+  model: deepseek-v4-pro
+  thinkingLevel: medium
+  # Models any channel may switch itself to. The agent has `list_models` and
+  # `switch_model` tools, so it can escalate to a stronger model for a hard
+  # task or drop to a cheap one for chatter. Empty = anything the harness has
+  # credentials for. Entries may be a bare id, provider/id, or provider/*.
+  models: []
+  # Note that bash is absent: it is opt-in per channel. `sqlite` is structured
+  # SQLite inspection/query/execute without a shell. `charts` is local PNG
+  # rendering without a shell. `slides` turns Markdown into self-contained HTML
+  # slide-deck attachments. `file_ops` lets non-bash channels organise files
+  # inside their workspace (mkdir/move/copy/delete). `web` adds `fetch_url`,
+  # `download_url`, and (once configured below) `search_web`. `fetch_url` reads
+  # text; `download_url` safely stages PDFs and other binaries in the channel
+  # workspace. These stop the agent answering "has 7.14.1 shipped?" from
+  # memory. Drop web here, or per channel, for a channel that should stay
+  # offline. Add `slack` per channel where the agent may search
+  # Slack read-only using the current speaker's stored user token (managed by
+  # `npm run slack-user-token`).
+  tools: [read, write, edit, ls, find, grep, sqlite, charts, slides, file_ops, web]
+  # Let agents use ask_canned_response to put safe fixed-choice buttons (for
+  # example Yes/No) in their current thread. This is off by default. Buttons
+  # only resume that same conversation with a structured response; they never
+  # run scripts or HTTP callbacks. A channel may override this setting below.
+  interactiveComponents:
+    enabled: false
+  # Selected local CLIs. Only exposed where `exec` is in that channel's tools
+  # list; each command runs without a shell and only with allowlisted argv
+  # patterns. Account-wide cliTools are never inherited from defaults.
+  exec:
+    commands: {}
+    shared: [] # channels explicitly opt into names from the top-level cliTools registry
+  # Workspace symlinks stay blocked unless their resolved target is listed
+  # here or per channel. Targets must be absolute and are only usable via a
+  # symlink path under the channel's own workspace — not as direct paths.
+  # Keep roots narrow: anything beneath a target is accessible to that channel
+  # through a symlink it can create in its workspace.
+  workspace:
+    symlinkTargets: []
+  # How the web tools behave. Same relationship as sandbox: to bash — the tools
+  # list says whether a channel can, this says what it may reach.
+  web:
+    search:
+      # none | brave | tavily | searxng. Without a provider the agent can read
+      # URLs it is given but cannot go looking for one. There is no default:
+      # every real search API needs a key, and the keyless alternative is
+      # scraping someone's results page.
+      provider: none
+      # apiKey: ${BRAVE_API_KEY}      # for brave/tavily; ${VAR} from an env file
+      # url: http://searx.lan:8080    # for a self-hosted searxng
+      maxResults: 5
+    maxChars: 20000 # extracted text handed to the model; a page is a token bill
+    downloadMaxBytes: 20971520 # 20 MiB cap for `download_url` files
+    timeoutSeconds: 20
+    # allowHosts: []                  # empty = any public host
+    # blockHosts: []
+    # Off by default: this box sits inside your network, so "summarise
+    # http://192.168.1.1" would otherwise read the router's admin page into
+    # Slack. Turn it on for a channel that should reach your own services.
+    allowPrivateHosts: false
+  # Prompt-based AI image generation. Also add `images` to a channel's
+  # tools list to expose generate_image there. Off by default because it calls
+  # a paid external API and prompts may be sensitive.
+  images:
+    provider: none # none | openai
+    # Either an API key, or a provider already logged in through authPath:
+    # apiKey: ${OPENAI_API_KEY}
+    # authProvider: openai-codex
+    baseUrl: https://api.openai.com/v1
+    model: gpt-image-1
+    size: 1024x1024
+    quality: auto
+    outputFormat: png
+    # responseFormat: b64_json # for older OpenAI-compatible endpoints, if needed
+    timeoutSeconds: 120
+  # How much of Slack's own history is read in when a conversation starts.
+  # Read once, on the turn that starts the conversation — an ongoing thread
+  # costs nothing extra. Never crosses a channel boundary.
+  context:
+    # Tagged into a thread that is already running: read the thread. This is
+    # what makes "@seneschal what did we decide above?" work at all.
+    threadBackfill: 50
+    # A brand-new top-level mention in a channel. Off by default: being
+    # mentioned once is not an invitation to read the room, and it is someone's
+    # own API budget. Raise it per channel where it earns its keep.
+    channelBackfill: 0
+    # The top level of a DM. On, because nobody threads a DM — without it,
+    # every message outside a thread would start from nothing.
+    dmBackfill: 20
+  # Rolling orientation context, not memory: after a handled thread has been
+  # quiet for debounceSeconds, a small model writes one sentence. The newest
+  # maxThreads are injected into every future turn's prompt for that channel.
+  recentConversations:
+    enabled: true
+    debounceSeconds: 60
+    maxThreads: 10
+    model: deepseek-flash
+    maxTranscriptChars: 8000
+  # Slack user IDs allowed to talk to the bot by default, including DMs.
+  # Omit to allow anyone in channels/DMs the harness is configured to serve.
+  # Per-channel `allowUsers` below overrides this list.
+  # allowUsers: [U01234567]
+  share:
+    knowledge: true # read data/shared/knowledge/*.md
+    memoryRead: true # read the account memory file
+    memoryWrite: false # but do not write to it
+    # Shared skill collections: data/shared/skills/<collection>/<skill>/SKILL.md.
+    # Assigned per channel, read-only unless `mode: rw` (rare: it changes what
+    # every channel holding the collection does; every write is logged).
+    # The flat data/shared/skills/<skill> layout and `skills: [...]` are gone:
+    # run `npm run migrate-skills`.
+    skillCollections: []
+    connectors: [] # nothing from the catalogue below
+    # Channel assistants this channel may transfer tasks to. Off by default.
+    # Use channel names, #names or Slack IDs; strings are accepted, but object
+    # form lets you tell the agent why it would pick that target.
+    delegateTo: []
+    # Other channels this channel may publish a message to with
+    # `post_to_channel`. Off by default, and the agent can reach only the
+    # channels listed here. Same entry format as delegateTo.
+    postTo: []
+    # Browse and install skills other channels published. On by default: the
+    # library is empty until a channel is allowed to publish, and installing
+    # copies the skill into this channel rather than activating it remotely.
+    library: true
+    # Publish this channel's own skills for others. Off by default — it writes
+    # instructions other channels may end up following.
+    libraryPublish: false
+    # Publish executable scripts to data/shared/bin/ with publish_shared_tool.
+    # Off by default — same shape as libraryPublish, but for something another
+    # channel may end up running rather than just reading.
+    sharedToolsPublish: false
+    # Shared-bin tools THIS channel may run, keyed by name, each with its own
+    # argv allowlist (same syntax as exec.commands.*.allowArgs). A name here —
+    # decided per consuming channel — is what makes a published tool
+    # executable; publishing alone exposes nothing.
+    sharedTools: {}
+    # Search and read the account's document library: everything anybody has
+    # attached and filed. On by default — reading a shelf affects nobody.
+    documents: true
+    # File documents onto that shelf. On by default, because otherwise an
+    # attachment can never be kept. Turn it off in any channel where something
+    # private might be attached: the library is readable account-wide.
+    documentsAdd: true
+    # Read-only knowledge bases (declared under `knowledgeBases:` below) this
+    # channel may walk and search. Nothing outside those folders is reachable.
+    knowledgeBases: []
+
+# Knowledge bases: folders of markdown pages (an Obsidian-style wiki) with index
+# files that link to what is beneath them. Declaring one exposes it nowhere —
+# each channel names the ones it may read in `share.knowledgeBases`. Read-only.
+# A channel with one also gets the built-in `librarian` subagent, which does the
+# searching in a context of its own and returns a curated answer.
+# knowledgeBases:
+#   handbook:
+#     path: /srv/wikis/handbook   # relative paths resolve from the repo root
+#     index: index.md             # starting page, relative to path (the default)
+#     description: How the team works
+# librarian:
+#   model: anthropic/claude-haiku-5-5   # optional: defaults to the channel's model
+#   timeoutSeconds: 300
+
+# Connector catalogue. Defining one here does NOT enable it anywhere — each
+# channel names the connectors it wants. Values support ${ENV_VAR}.
+connectors:
+  # gmail:
+  #   transport: stdio
+  #   description: Read and search email
+  #   command: npx
+  #   args: ["-y", "@example/mcp-gmail"]
+  #   env:
+  #     GMAIL_TOKEN: ${GMAIL_TOKEN}
+  #
+  # github:
+  #   transport: http
+  #   description: Issues and pull requests
+  #   url: https://api.example.com/mcp
+  #   headers:
+  #     Authorization: Bearer ${GITHUB_MCP_TOKEN}
+  #   allowTools: [list_issues, get_issue] # optional narrowing
+  #
+  # For a key-only, remote-root-confined SFTP connector, copy
+  # config/sftp-mcp.example.yaml and follow docs/sftp-mcp.md. It requires a
+  # dedicated SFTP-only chroot account; do not use a password or a floating npx install.
+  # cloudflare-api:
+  #   transport: http
+  #   description: Manage Cloudflare through Cloudflare's official remote API MCP server
+  #   url: https://mcp.cloudflare.com/mcp
+  #   oauth:
+  #     # Host docs/oauth-complete.html at this exact HTTPS URL and register it with the provider.
+  #     # Cloudflare supports dynamic client registration; no client secret is needed.
+  #     redirectUrl: https://oauth-complete.example.org/
+  #     manualCompletionTtlSeconds: 600
+  #     clientName: Home Harness Cloudflare
+  #
+  # google-calendar:
+  #   transport: http
+  #   description: Google Calendar remote MCP
+  #   url: https://calendarmcp.googleapis.com/mcp/v1
+  #   oauth:
+  #     clientId: ${GOOGLE_CALENDAR_MCP_CLIENT_ID}
+  #     clientSecret: ${GOOGLE_CALENDAR_MCP_CLIENT_SECRET}
+  #     redirectUrl: https://oauth-complete.example.org/
+  #     # The copied static-page result is valid for 10 minutes by default (60–3600).
+  #     manualCompletionTtlSeconds: 600
+  #     # tokenFile is optional; by default, tokens are stored under the channel's private state.
+  #   allowTools: [list_calendars, list_events, get_event, create_event, update_event, delete_event]
+
+# Shared CLI registry. Defining a tool here grants it to nobody: each channel
+# must both list `exec` in `tools` and name the tool in `exec.shared` below.
+# The command, fixed arguments, limits, and argv allowlist live here once, so
+# operator-reviewed tools do not have to be duplicated per channel. `${VAR}`
+# values expand from each consuming channel's environment.
+# cliTools:
+#   deploy-status:
+#     description: Read the current deployment status.
+#     command: /usr/local/bin/deploy-status
+#     args: []
+#     allowArgs:
+#       - [--environment, staging]
+#       - [--environment, production]
+#     timeoutSeconds: 30
+#     maxOutputBytes: 200000
+
+# Agent sets: named teams of subagents, defined once and assigned to channels
+# with `channels.<name>.agentSet`. The channel's own agent is still the only
+# voice in the channel; it hands self-contained jobs to these roles with
+# `run_subagent` and reads their reports. A role has its own tools, connectors,
+# model and context window, and never talks to Slack. It shares the channel's
+# workspace, memory and skills, so the same role behaves differently in each
+# channel that uses it, according to what that channel has learned.
+#
+# What a role gets is an INTERSECTION: the tools and connectors listed here,
+# limited to what the channel itself has. A set can never grant a role something
+# the channel lacks, and a channel can only narrow a role (`agentOverrides`).
+# A role's `model` is added to that channel's model allowlist, so name it exactly.
+#
+# The set MUST be named `software_factory`: its shipped skills load only for an agent set named
+# like their folder, and a set under another name leaves its roles without them.
+#
+# The software factory below is a proof of concept. Its shipped skills (how the
+# team hands work along, label conventions, deployment steps) live in
+# agent-set-skills/software_factory/ and are loaded automatically for any
+# channel that uses the set. Triage -> coder -> reviewer -> deployer is
+# orchestrated by the channel agent: a subagent reports who should act next,
+# and the channel agent decides.
+agentSets:
+  software_factory:
+    description: Sort GitHub issues, build the ready ones, review the result, deploy to Cloudflare.
+    agents:
+      github_triage:
+        description: Triages GitHub issues. Sets status, type and priority labels, finds duplicates, asks for missing detail, and marks issues ready to build. Writes no code.
+        tools: [read, bash]
+        connectors: [github]
+        instructions: |
+          You triage GitHub issues for the repository named in the brief. Follow the
+          `github-issue-triage` and `factory-handoffs` skills. Use the `gh` CLI, or the
+          GitHub connector if you have one. Decide what is ready to build; never write code,
+          close issues, or change anything the brief does not ask for. Prefer going ahead: an
+          issue that says enough to build something sensible is ready, with your assumptions
+          written on it in one comment. Ask only what you cannot decide and what would send the
+          work the wrong way, all in ONE comment, with what you will assume if nobody answers.
+          End every GitHub comment you write with the footer given in your brief, exactly as written.
+      coder:
+        description: Implements one ready GitHub issue on a branch, runs the tests, and opens a pull request. Never merges.
+        tools: [read, write, edit, ls, find, grep, bash]
+        connectors: [github]
+        timeoutSeconds: 1800
+        instructions: |
+          You implement the issue named in the brief. For new work, use a new branch from the base
+          branch, keep the change to what the issue asks, run the project's tests, and open
+          a pull request that links the issue. Follow the `factory-implementation` and
+          `factory-commit-pr` skills if you have them, and `factory-handoffs` for your
+          report. Do not stop to ask: when something is ambiguous take the most reasonable
+          reading, list it under "Assumptions" in the pull request description, and carry on;
+          report blocked only when you cannot build it at all. Move the issue's status label on
+          as `factory-handoffs` describes: in-progress
+          when you start, in-review once the pull request is open, each time removing the label it
+          replaces. Conflict repair is implementation work: use the existing PR branch in an isolated
+          checkout and its actual target base, record head/base SHAs, merge without rewriting published
+          history, preserve both intended changes, and run tests/typecheck/build. Do not force-push.
+          If resolution needs a product decision, report blocked with conflicting paths and alternatives
+          rather than guessing. Report the pushed head and require fresh independent review.
+          Never merge, and never push to the default branch. End the pull request
+          description and every GitHub comment you write with the footer given in your brief, exactly
+          as written.
+      reviewer:
+        description: Reviews a pull request against its issue, runs the tests, and comments on the PR. Never merges or edits the code under review.
+        tools: [read, ls, find, grep, bash]
+        connectors: [github]
+        timeoutSeconds: 1200
+        instructions: |
+          You review the pull request named in the brief against the issue it claims to
+          solve. Follow the `factory-review` skill if you have it, and `factory-handoffs`
+          for your report, including a clear verdict and a `RISK:` score from 1 to 5 on every review
+          (without one the change waits for a person). Request changes only for blockers and real
+          problems; nits go in the review and do not block. Run the tests yourself rather than
+          trusting the author's report. Recheck mergeability against the current target base at the
+          start AND end of review, before asking for merge approval. CONFLICTING or DIRTY means
+          CHANGES_REQUESTED and NEXT: coder with head/base SHAs and evidence; never fix conflicts
+          yourself. UNKNOWN needs bounded refresh (at most twice), then blocked, not approval.
+          Other merge blockers are not proof of conflicts. Post your findings on the PR as a review, and move the
+          issue's status label to approved or changes-requested as `factory-handoffs`
+          describes, removing the one it replaces. Do not change the code you are reviewing,
+          and never merge. End every review and comment you post with the footer given in your
+          brief, exactly as written.
+      cloudflare_deployer:
+        description: Deploys an approved, merged change to a named Cloudflare environment with wrangler, checks it, and reports how to roll back. Only with an explicit approval in the brief.
+        # wrangler ships in the harness and sandbox images; the channel supplies the credentials
+        # (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in its env file, see the factory channel below).
+        tools: [read, bash]
+        timeoutSeconds: 1200
+        # Runs only while a person has approved it in Slack (approve/deny buttons, expiring grant).
+        requireApproval: true
+        instructions: |
+          You deploy exactly the commit and environment the brief names, with wrangler, and only
+          when the brief contains the user's approval. Follow the `cloudflare-deploy` skill
+          (which commands you may and may not run) and `factory-handoffs` for your report. If
+          anything it requires is missing, stop and report instead of guessing. End any GitHub
+          comment you write with the footer given in your brief, exactly as written.
+
+# Reviewers for post_as_user (see "Posting as a user" in the README). A reviewer
+# is a role with no tools and no connectors. It reads one draft and answers
+# send or hold. It runs as a one-shot call, so it never gets memory or skills.
+  guards:
+    description: Reviews drafts before they are sent to Slack as a person.
+    agents:
+      post_guard:
+        description: Decides whether a draft may be sent now or must be held for the person.
+        tools: []
+        timeoutSeconds: 30
+        instructions: |
+          You protect the person the draft would be sent as. Be cautious: a held post
+          costs one click, a leaked one cannot be taken back.
+
+channels:
+  # Keyed by channel name, or by Slack channel ID (IDs win, and survive renames).
+  # Optional personal profile management, enabled ONLY in an individual channel:
+  # calendar-assistant:
+  #   allowUsers: [U01234567]
+  #   slackProfile: { user: U01234567, team: T01234567 }
+  # This exposes set_slack_status, clear_slack_status, set_slack_profile_photo.
+  # Provision that user's users.profile:write USER token via the existing
+  # user-token store or channel-scoped SLACK_USER_TOKEN_U01234567 secret.
+  # Never put a token in YAML; the bot token cannot edit a person's profile.
+  # Calendar/email access is separate and stays opt-in. See docs/slack-profile.md.
+
+  general:
+    description: General chat and questions for the whole household.
+    # Inherits every default. Knowledge is shared; nothing else is.
+    # Set true in channels where every new top-level message should get a
+    # response without tagging the bot. Thread replies still need an active
+    # bot thread or an explicit mention.
+    # respondToRootMessages: true
+
+  life-admin:
+    description: Household project management and life admin.
+    share:
+      # This agent can hand technical work to engineering, where bash, secrets
+      # and technical memory live. The initial result or failure is posted back
+      # to the source thread automatically; this does not grant arbitrary
+      # cross-channel posting.
+      delegateTo:
+        - channel: engineering
+          reason: technical work needing bash, secrets and deploy context
+
+  engineering:
+    description: Build, deploy and debug the home services.
+    # Optional GitHub-Issue-based software factory. A complete, working block (intake,
+    # merge rules, assumptions, limits) is in the `factory` channel below; this is the short form.
+    # The reviewed lifecycle
+    # skills below are local to this harness; an engineering channel can save
+    # a same-named skill to customise one without changing other factories.
+    # The live dashboard is the web console's factory page for this channel;
+    # enable top-level webConsole to serve it.
+    # factory:
+    #   name: Home Services
+    #   repositories: [acme/home-services]
+    #   lifecycleSkills: [planning, implementation, review, commit-pr]
+    #   # How much it may do without a person: cautious (the default), balanced or autonomous. Sets autoMergeMaxRisk,
+    #   # assumeAfterHours, reviewRounds and autoRetries together; any of them set explicitly wins. See the `factory`
+    #   # channel below for what each level does.
+    #   autonomy: balanced
+    #   # Who may approve a merge, and when a reviewed pull request may merge without a person. Nothing merges by itself
+    #   # unless autoMergeMaxRisk is set (0, the default, is never; 5 is never automatic) AND GitHub reports at least one
+    #   # required check, all green. The reviewer scores risk 1-5; sensitivePaths and very large diffs only raise it.
+    #   # approvers defaults to the channel's allowUsers.
+    #   merge:
+    #     approvers: [U01ALICE1]
+    #     # autoMergeMaxRisk: 2   # set by `autonomy` (balanced: 2); only here to differ
+    #     method: squash
+    #     sensitivePaths: ["infra/**", "**/migrations/**", ".github/**"]
+    #   repositoryRules:
+    #     acme/home-services: { autonomy: cautious }   # this repository is stricter than the factory
+    #   # Let the agent file a GitHub issue for a request that has none yet (off by default).
+    #   issues:
+    #     create: true
+    #     labels: ["status:triage"]   # the harness creates any that are missing
+    #     maxPerHour: 10
+    # This channel's own secrets. Defaults to data/channels/<id>/env if the
+    # file exists, so you can also just drop one there without config.
+    # A value here shadows the same name in the global bundle.
+    # envFile: ./secrets/engineering.env
+    model: openai/gpt-5.4
+    thinkingLevel: high
+    # This channel may escalate within these, and nothing else.
+    models: [deepseek-v4-pro, openai/gpt-5.4, openai/gpt-5.4-mini, openai/o4-mini]
+    # Optional: permit links *inside this workspace* to this exact host tree.
+    # The target is still blocked as a direct absolute path. Do not name a
+    # broad parent such as /Users/you or a directory containing channel data.
+    # workspace:
+    #   symlinkTargets: [/Users/you/projects]
+    tools: [read, write, edit, ls, find, grep, sqlite, web, slack, bash] # Slack search + bash; add images to expose generate_image
+    # bash cannot be confined by path checking, so run it in a throwaway
+    # container with only this channel's workspace mounted. Build the image
+    # first:  docker build -f Dockerfile.sandbox -t seneschal-sandbox .
+    # Kiri alternative: mode: kiri (Kiri 0.2.1+ server, native kiri CLI and host tar).
+    # Build with `kiri build -f Dockerfile.sandbox -t seneschal-sandbox .`
+    # See docs/kiri-sandbox.md for setup, conservative recovery and live-test limits.
+    # Apple alternative (native Apple Silicon/macOS 26+, container 1.6.1+ 1.x):
+    # mode: macos-container, readOnlyRoot: true, pidsLimit: null (explicitly no PID limit).
+    # Build with `container build --platform linux/arm64 -f Dockerfile.sandbox -t seneschal-sandbox .`
+    # See docs/apple-containers.md for required setpriv, limitations and verification.
+    sandbox:
+      mode: docker
+      # One lazy long-lived container per stable Slack thread, exec'd into. Anything the agent
+      # installs or leaves running persists between commands. Set reuse: false
+      # for a throwaway container per command instead.
+      reuse: true
+      idleSeconds: 86400 # delete only after 24h without commands/background processes
+      readOnlyRoot: false # clones in container-local /repos; durable outputs in /workspace
+      # true uses bounded /repos tmpfs, lost on stop/cancel, never a Docker volume
+      network: bridge # gh needs the internet; use "none" to keep bash offline
+      # Give this channel its own image to build up tools the others lack:
+      #   docker build -f Dockerfile.engineering -t harness-engineering .
+      # image: harness-engineering:latest
+      #
+      # Or drop a Dockerfile in data/channels/<id>/ and leave `image` unset:
+      # the harness builds it on first use and rebuilds when it changes. That
+      # file is a sibling of workspace/, so it is outside the agent's jail —
+      # the channel can fill its container, not redefine it.
+    requires:
+      # Be opinionated about the tooling this channel's work depends on: the
+      # harness refuses to serve the channel until these exist, rather than
+      # letting the model discover the gap halfway through a task.
+      # `npm run doctor` reports exactly what is missing.
+      binaries: [git, gh, jq]
+      env: [GH_TOKEN]
+      onMissing: fail
+    share:
+      skillCollections: [software-development] # data/shared/skills/software-development/, read-only
+      # skillCollections: [{ name: ops-runbooks, mode: rw }] # this channel may edit it
+      # connectors: [github]   # uncomment together with the catalogue entry
+      memoryWrite: true # trusted to update the account brain
+      # This channel works things out that the others benefit from, so it may
+      # put a skill on the shared shelf. Nothing happens to another channel
+      # until that channel's agent installs it.
+      libraryPublish: true
+      # This channel also writes small scripts other channels may be allowed
+      # to run — see `ops` below, which is one of those other channels.
+      sharedToolsPublish: true
+
+  factory:
+    description: Software factory for the home services. Triage, build, review and deploy via subagents.
+    # The channel agent leads the team in agentSets.software_factory above. It is
+    # the only voice here; the subagents work on GitHub and Cloudflare.
+    agentSet: software_factory
+    model: openai/gpt-5.4
+    thinkingLevel: medium
+    # The channel must itself hold whatever its roles are to use: tools a role
+    # asks for are dropped unless the channel has them.
+    tools: [read, write, edit, ls, find, grep, bash]
+    # Refuse to serve the channel until gh and its token exist, rather than
+    # letting the first run fail halfway. `npm run doctor` says what is missing.
+    requires:
+      binaries: [git, gh, jq]
+      env: [GH_TOKEN]
+      onMissing: fail
+    # ── The software factory ─────────────────────────────────────────────────
+    # This block turns the channel into one that works GitHub issues from start
+    # to finish by itself. Change `repositories` first; everything else is a
+    # working starting point. Each setting below says what it saves you from.
+    # Where a run still needs a person is listed in "Unsticking a run" in the README.
+    factory:
+      name: My Factory
+      repositories: [YOUR-ORG/YOUR-REPO]   # the repositories it may work, as owner/name
+      # HOW MUCH IT MAY DO WITHOUT A PERSON. One word, three levels; start here, then override single numbers
+      # only if you need to (an explicit setting always beats the level):
+      #                 auto-merges at   waits for an answer   review rounds   retries a failed
+      #                 risk (1-5) of    before assuming        before asking   stage by itself
+      #   cautious      never (you merge)   forever             3               no     <- the default when this is left out
+      #   balanced      2 or under          24 hours            4               no
+      #   autonomous    3 or under          4 hours             5               once
+      # No level loosens a gate: a pull request still merges only if the reviewer approved it, every REQUIRED
+      # check on the branch is green and the pull request has not changed since review; sensitivePaths and big
+      # diffs still raise the risk score; a branch with no required check still needs you to merge; only trusted
+      # authors start runs; a comment never approves or merges; deploys still wait for an approver.
+      # What each repository gets is logged when the config loads, and shown on every run's status post.
+      autonomy: balanced
+      # A strict repository in an easy factory (or the other way round) has its own level:
+      # repositoryRules:
+      #   YOUR-ORG/payments: { autonomy: cautious }       # every merge is a person's
+      #   YOUR-ORG/internal-tools: { autonomy: autonomous }
+      # Who may approve or decline a merge is `merge.approvers`; leave it out and it is this channel's
+      # allowUsers. Slack user IDs, not names.
+      merge:
+        # autoMergeMaxRisk is set by the level above (balanced: 2, "small, tested and contained"). Set it here
+        # only to differ from the level, for example 1 to be a little stricter. 4 is the most you can allow, 5 is
+        # never automatic. 0 means a person merges everything.
+        # autoMergeMaxRisk: 1
+        method: squash
+        # A change touching any of these is at least risk 4, so a person looks at it.
+        sensitivePaths: ["infra/**", "**/migrations/**", ".github/**", "**/auth/**", "**/*.lock", "package.json"]
+        largeDiffLines: 800                # over this many changed lines is at least risk 3
+      # Also set by the level, each one overridable: how many times review may send the work back to the coder
+      # before a person is asked (`reviewRounds`, each round is a full coder run), and how many times the engine
+      # tries a failed stage again before asking (`autoRetries`, 0 to 3).
+      # reviewRounds: 4
+      # autoRetries: 0
+      # Runs live at once, counting ones waiting for a person. A few stuck runs fill a small limit and
+      # hold up new issues; the cost is model time, so raise it with care.
+      maxLiveRuns: 5
+      # Watch the repositories and start a run for every new issue from a trusted author (owner,
+      # member, collaborator, or an issue labelled `factory:go`). Without this nothing starts until
+      # someone asks the agent to.
+      # Alternative: source: jira plus factory.jira; one target repository per Jira factory.
+      # See docs/JIRA_WORK_TRACKING.md for components/projects, account trust and ACLI setup.
+      intake:
+        enabled: true
+        intervalSeconds: 120
+        # Triage asks its questions once, in one comment, with what it will assume. Waiting for an answer
+        # is the other common reason a run sits. After `assumeAfterHours` with no answer (set by the level:
+        # balanced is 24) it goes ahead on its stated assumptions (still reviewed, still behind the merge
+        # rules) instead of waiting for needsInfoDays and then being rejected. 0 makes it wait for a person.
+        # assumeAfterHours: 24
+        needsInfoDays: 7
+      # Let the agent file an issue for a request made in Slack; intake then picks it up.
+      issues:
+        create: true
+      announce: true                       # a status post per run, where people can steer it
+    sandbox:
+      mode: docker
+      network: bridge # gh and wrangler need the internet
+    # This channel's own secrets: GH_TOKEN for gh, and for the deployer
+    #   CLOUDFLARE_API_TOKEN=...   # an API token scoped to Workers Scripts:Edit on ONE account
+    #   CLOUDFLARE_ACCOUNT_ID=...  # (plus Workers Routes/Pages:Edit only if the project needs them)
+    # Use a token that can do nothing but deploy: no DNS, no zone, no account settings. Never the Global API Key.
+    # envFile: ./secrets/factory.env  # or drop the same file at data/channels/<id>/env
+    share:
+      connectors: [github] # optional: roles can use gh through bash instead; uncomment the catalogue entry to use a connector
+    permissions:
+      # The deployer needs an approval, which is for the role over a window, not for one commit: keep it short.
+      durations: [15, 60]
+    # Narrow a role in this channel (never widen it). The deployer is off here: with it on, every merged
+    # change waits for a person to approve the deploy, and it needs the Cloudflare credentials above. To
+    # deploy from this channel, delete the next three lines.
+    agentOverrides:
+      cloudflare_deployer: { enabled: false } # this channel builds and merges but never deploys
+
+  # Optional built-in configuration roles, independent of agentSets. Both default off.
+  # Enable harness only in a channel trusted with operator-level config authority.
+  # channelConfigurator cannot change its own rights or execution/access boundaries.
+  # ops:
+  #   allowUsers: [U0123ADMIN]
+  #   configurators: { channel: true, harness: false }
+  # To receive connector/CLI capability requests, designate exactly one trusted
+  # admin: true channel with allowUsers and configurators.harness: true.
+  # Requests do not grant this authority. See docs/capability-requests.md.
+
+  qa:
+    description: Quality assurance and browser testing for the home services.
+    # Playwright is exposed as one restricted CLI, not bash. The official
+    # harness image bundles @playwright/cli and Chromium at this path; use the
+    # equivalent absolute path if running the harness outside that image.
+    tools: [read, write, edit, ls, find, grep, sqlite, charts, file_ops, web, exec]
+    requires:
+      binaries: [playwright-cli]
+      onMissing: fail
+    # Jobs: named, repeatable workflows the agent can run in the background (see the README's Jobs section). They are
+    # listed per channel and never inherited from `defaults`. An exec phase uses a command from this channel's own `exec`
+    # policy below, so a job can never do more than the channel could already do.
+    # jobs:
+    #   open-home:
+    #     description: Open the home page in the QA browser and remember that it was checked
+    #     phases:
+    #       - { name: open, kind: exec, command: playwright, args: [open, "http://localhost:8123"] }
+    #       - { name: remember, kind: state, op: set, path: /qa/last-open, value: "${phases.open.result}" }
+    exec:
+      commands:
+        playwright:
+          description: >-
+            Drive a QA-only Playwright browser session: navigate, inspect,
+            interact with the page, and capture screenshots or PDFs.
+          command: /app/node_modules/.bin/playwright-cli
+          # Keep browser state in QA's named session rather than using a
+          # process-global default session. The image config selects its
+          # bundled Chromium (including on arm64) for every CLI invocation.
+          args: [-s=harness-qa]
+          env:
+            PWTEST_CLI_GLOBAL_CONFIG: /app
+          timeoutSeconds: 60
+          maxOutputBytes: 200000
+          # Deliberately no `**`: browser automation gets only the commands
+          # QA needs. In particular, no eval/run-code, config/profile loading,
+          # file upload/drop, state-load, attach, or global session controls.
+          allowArgs:
+            - [open, "*"]
+            - [goto, "*"]
+            - [close]
+            - [reload]
+            - [go-back]
+            - [go-forward]
+            - [snapshot]
+            - [snapshot, "*"]
+            - [find, "*"]
+            - [click, "*"]
+            - [click, "*", "*"]
+            - [dblclick, "*"]
+            - [dblclick, "*", "*"]
+            - [type, "*"]
+            - [fill, "*", "*"]
+            - [hover, "*"]
+            - [select, "*", "*"]
+            - [check, "*"]
+            - [uncheck, "*"]
+            - [press, "*"]
+            - [keydown, "*"]
+            - [keyup, "*"]
+            - [screenshot]
+            - [screenshot, "*"]
+            - [pdf]
+            - [tab-list]
+            - [tab-new]
+            - [tab-new, "*"]
+            - [tab-close, "*"]
+            - [tab-select, "*"]
+            - [console]
+            - [console, "*"]
+            - [requests]
+            - [request, "*"]
+            - [request-headers, "*"]
+            - [request-body, "*"]
+
+  ops:
+    description: Alerts and on-call.
+    share:
+      channelMemoryRead: [engineering] # explicit, one-way visibility
+      # connectors: [github]
+      # Run a shared-bin tool that "engineering" published, once it exists —
+      # this channel's own argv allowlist, separate from whatever engineering
+      # intended. Presence here, not publication, is what makes it runnable.
+      # sharedTools:
+      #   deploy-notify:
+      #     allowArgs: [["--env", "staging"]]
+      #     env:
+      #       NOTIFY_WEBHOOK: ${DEPLOY_WEBHOOK}
+    permissions:
+      # Rather than always-on publishing, let this channel ask when it has
+      # written something worth sharing. A human sees the skill name and the
+      # reason, clicks approve, and the grant expires by itself.
+      grantable: [network, web, skillPublish, sharedToolsPublish]
+
+  # A channel that keeps entirely to itself, including from account knowledge.
+  private-notes:
+    description: Personal scratch space.
+    # Pinned to one cheap model; the agent cannot switch away from it.
+    model: deepseek-v4-flash
+    models: [deepseek-v4-flash]
+    # No web either: nothing typed here leaves the box, not even as a search.
+    tools: [read, write, edit, ls, find, grep, sqlite]
+    share:
+      knowledge: false
+      memoryRead: false
+      library: false # not even the shelf
+      # Nothing attached here is read by, or filed for, anybody else.
+      documents: false
+      documentsAdd: false
+
+  # An inbox that may reply as one person. Example only: it does nothing until the
+  # person's Slack user token is stored (npm run slack-user-token -- set U01234567)
+  # and you swap in their real user id. Changing share.postAs later needs an
+  # approval click, and it is never set in defaults.
+  den-inbox:
+    description: Triage a personal inbox and send short replies as one named person.
+    agentSet: guards
+    share:
+      postAs:
+        user: U01234567
+        reviewer: post_guard
+        maxPerHour: 10
+        rules: |
+          Never share finance figures or salaries.
+          Calendar availability is fine; never commit to dates.
+          Never forward attachments or links to documents.
+        # Added to the built-in private hosts (Google Docs and Drive, Notion, Atlassian, ...).
+        privateLinkHosts: [wiki.example.com]
+
+# Channels with no entry above get an isolated workspace on the defaults.
+# Set to false to make the harness ignore any channel not listed here.
+allowUnconfiguredChannels: true
+
+# DMs become a private per-user channel, isolated like any other.
+allowDirectMessages: true
+
+# The agent can schedule its own follow-up work from a conversation
+# ("remind me Friday", "check the backups every morning"). Scheduled work runs
+# in the channel it was created in — never another one. One-shot check-backs
+# can opt into resuming the current Slack thread instead of posting a new one.
+schedules:
+  enabled: true
+  # Used when a schedule does not name its own timezone. Set this: the default
+  # of UTC makes "every morning at 8" land somewhere surprising.
+  timezone: UTC
+  maxPerChannel: 20
+  # Refuses anything firing more often than this, so a stray "* * * * *"
+  # cannot bill you by the minute.
+  minIntervalMinutes: 5
+
+# Compact, account-wide token/cost usage in one channel topic. Off by default:
+# the indicator only replaces an empty topic or one it wrote itself (🤖).
+# It refreshes every 15 minutes and reads rolling 1h/24h windows from the
+# shared usage log. Public channels only: use its Slack ID (starts with C),
+# never a name or private-channel ID. This needs channels:write.topic.
+channelTopicUsage:
+  enabled: false
+  channel: "" # e.g. C0EXAMPLE01
+
+# Overnight memory consolidation. Once a day, when nobody is talking, each
+# channel rereads its own recent conversations, folds what mattered into its
+# memory, merges the entries that say the same thing, and lets go of what has
+# sat unused since it arrived. Dropped entries go to memory/MEMORY.archive.md
+# and every pass is written up in memory/DREAMS.md — nothing vanishes silently.
+#
+# Costs one model call per channel per night, and only for channels that have
+# something to think about.
+dreams:
+  enabled: true
+  cron: "0 3 * * *"
+  # Defaults to the schedules timezone above.
+  # timezone: Australia/Melbourne
+  # How long an entry may sit unused, unrepeated and never recalled before the
+  # pass is invited to drop it.
+  forgetAfterDays: 90
+  maxConversations: 8
+  # Full transcripts kept under data/channels/<id>/dreams/, for working out
+  # what a strange pass actually did — they hold the tool calls, so the exact
+  # text handed to `forget` is recoverable. The one-line-per-run log beside
+  # them is kept forever regardless; only these are pruned, being the big ones.
+  keepTranscripts: 14
+  # Post a one-line note to the channel afterwards. Off: a nightly "I tidied my
+  # memory" message is spam in a channel people actually use.
+  announce: false
+
+# Daily compressed backup of the whole data directory. Archives are written as
+# data-YYYY-MM-DD.tar.gz and then rotated, so the backup directory cannot grow
+# forever. Empty `directory` means a `backups/` sibling next to `dataDir`; if you
+# put it inside `dataDir`, it is excluded from the archive to avoid nesting old
+# backups inside new ones.
+backups:
+  enabled: true
+  # Runs before the overnight memory pass by default.
+  cron: "30 2 * * *"
+  # Defaults to the schedules timezone above.
+  # timezone: Australia/Melbourne
+  # Empty = <dataDir>/../backups. Relative paths resolve against the repo root.
+  directory: ""
+  keepLast: 14
+
+# Shared notification batching. Any channel can submit a short item with
+# `submit_notification`; only the channel named here can collect the batch with
+# `collect_notifications`. Schedule a task in that channel to collect the batch,
+# summarise it, and post one message.
+notifications:
+  enabled: true
+  # A channel name, "#name", or a Slack id. Empty means channels can queue
+  # items, but nothing can collect them until this is set.
+  channel: ""
+  maxPending: 200
+  maxMessageChars: 4000
+
+# What the harness could not do, delivered rather than filed.
+#
+# Every channel's agent can file a limitation with `report_limitation` — a tool
+# it needed and did not have, data it could not reach, a permission in the way.
+# That always happens, and always lands in data/shared/feedback/. What is
+# configured here is who hears about it, because a file nobody opens improves
+# nothing.
+#
+# The digest leads with what changed since the last one and stays silent in a
+# week where nothing did. Startup is different: once the process has connected
+# to Slack and registered its background jobs, it posts a one-line success notice
+# here. The channel named here is also the one place the whole log can be read:
+# its agent gets read access to shared/feedback/, and `!feedback all` works there.
+feedback:
+  # A channel name, "#name", or a Slack id. Empty means no digest and no
+  # startup notice — reports still accumulate, and `!feedback` still shows a
+  # channel its own.
+  digestChannel: ""
+  cron: "0 9 * * MON"
+  # Defaults to the schedules timezone above.
+  # timezone: Australia/Melbourne
+  # Tell the channels that reported something when it is closed. On: an agent
+  # that reports a wall and never hears back teaches people not to bother.
+  announceResolved: true
+
+ui:
+  # Reaction added to your message while the agent works, removed when the
+  # reply lands. Slack has no typing indicator for bots, so this stands in for
+  # one. Requires the reactions:write scope.
+  ackEmoji: hourglass_flowing_sand
+  # Show what the agent is doing during a long turn. true shows the status as
+  # soon as the model starts thinking or a tool starts; long_running waits
+  # until the turn has produced nothing for toolActivityAfterMs, so quick
+  # answers stay clean and only a turn that has gone quiet long enough to look
+  # stuck explains itself; false never shows it.
+  showToolActivity: true
+  # How long a turn must go silent before long_running starts reporting.
+  toolActivityAfterMs: 10000
+  # What the thread shows while a subagent works. all: a post when work is handed
+  # over, the subagent's own short updates as it goes, and a closing line when it
+  # is done. handoffs: only the hand-off and the closing line. off: nothing but
+  # the channel agent's own answer.
+  subagentProgress: all

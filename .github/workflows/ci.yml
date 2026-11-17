@@ -1,0 +1,75 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  harness:
+    name: Typecheck and tests
+    runs-on: ubuntu-24.04
+    # The suite takes about 4 minutes. A per-test limit cannot interrupt code that blocks the event loop (a synchronous
+    # spin), so this is the backstop that turns that kind of hang into a failure instead of a long wait.
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.0' # current LTS, same as the Dockerfiles
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Same command as `npm test` (which sets a 2-minute limit per test, so a test that hangs fails by name instead of
+      # waiting), with the file concurrency capped: the crash-recovery tests spawn and SIGKILL child processes, which time
+      # out when a two-core runner is also running every other file at once.
+      - run: node --experimental-strip-types --test --test-timeout=120000 --test-concurrency=2 'src/**/*.test.ts'
+
+  console2:
+    name: webConsole2 (typecheck, unit tests, build, browser tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/console2/package-lock.json
+      # The real-server browser test boots the harness's own web server, so the harness's dependencies are needed too.
+      - run: npm ci
+      - run: npm ci
+        working-directory: web/console2
+      - run: npm run typecheck
+        working-directory: web/console2
+      - run: npm test
+        working-directory: web/console2
+      - run: npm run build
+        working-directory: web/console2
+      # The console image gets only the standalone API contract, not the rest of src. A normal checkout build can hide
+      # accidental imports of server types; build the actual source subset to keep this deployment boundary covered.
+      - name: Build the standalone console Docker stage
+        run: docker build --target console2 --file Dockerfile.harness .
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+        working-directory: web/console2
+      - name: Browser tests against the mock API
+        run: npm run e2e
+        working-directory: web/console2
+      - name: Browser tests against the real server and its Content-Security-Policy
+        run: npm run e2e:real
+        working-directory: web/console2
+      - name: Keep the screenshots if a browser test fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: console2-e2e
+          path: |
+            web/console2/test-results
+            web/console2/e2e/screenshots
+          if-no-files-found: ignore

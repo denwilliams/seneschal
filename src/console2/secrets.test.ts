@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { SecretAdmin } from "../config/managed-env.ts";
+import { fixture } from "./fixture.ts";
+import { logger } from "../util/log.ts";
+
+test("HTTP secret admin: names only, guarded writes, no diagnostic leaks and deferred confirmed restart", async (t) => {
+  const logs: unknown[] = [];
+  for (const level of ["info", "warn", "error", "debug"] as const) t.mock.method(logger, level, (...args: unknown[]) => logs.push(args));
+  const f = fixture();
+  const privateDir = mkdtempSync(join(realpathSync(tmpdir()), "secret-api-"));
+  const file = join(privateDir, "env.json");
+  t.after(() => rmSync(privateDir, { recursive: true, force: true }));
+  let restarts = 0;
+  f.source.admin = { configPath: join(f.source.dataDir, "config.yaml"), dataDir: f.source.dataDir };
+  f.source.secrets = new SecretAdmin(file, () => { restarts++; }, { INHERITED_TOKEN: "inherited-secret-sentinel" });
+  await f.server.start();
+  t.after(() => f.server.stop());
+  const url = `http://127.0.0.1:${(f.server.address() as { port: number }).port}/console2/api/v1/secrets`;
+  const headers = { host: "console.test", "content-type": "application/json", "x-console-admin": "1" };
+  const post = (body: unknown, extra: Record<string, string> = {}) => fetch(url, { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body) });
+  const body = { operation: "save", name: "NEW_TOKEN", value: "submitted-secret-sentinel", overwrite: false };
+  const noLeak = async (res: Response, status: number) => {
+    assert.equal(res.status, status);
+    assert.equal(res.headers.get("cache-control"), "no-store");
+    const text = await res.text();
+    assert.ok(!text.includes("submitted-secret-sentinel") && !text.includes("inherited-secret-sentinel"));
+    return text;
+  };
+  const initial = JSON.parse(await noLeak(await fetch(url, { headers }), 200));
+  assert.equal(initial.variables[0].name, "INHERITED_TOKEN");
+  assert.equal(await (await fetch(url, { method: "HEAD", headers })).text(), "");
+  const badHost = await new Promise<number>((resolve, reject) => {
+    const req = httpRequest(url, { method: "POST", headers: { ...headers, host: "evil.test" } }, (res) => { res.resume(); resolve(res.statusCode!); });
+    req.on("error", reject); req.end(JSON.stringify(body));
+  });
+  assert.equal(badHost, 421);
+  for (const extra of ([{ origin: "https://evil.test" }, { "sec-fetch-site": "same-site" }, { "x-console-admin": "" }] as Record<string, string>[])) await noLeak(await post(body, extra), 403);
+  await noLeak(await fetch(url, { headers: { ...headers, origin: "https://evil.test" } }), 403);
+  await noLeak(await fetch(url, { headers: { ...headers, "sec-fetch-site": "cross-site" } }), 403);
+  await noLeak(await post(body, { "content-type": "text/plain" }), 415);
+  await noLeak(await post({ ...body, file: "/tmp/evil" }), 400);
+  await noLeak(await post({ ...body, "submitted-secret-sentinel": 1 }), 400);
+  await noLeak(await post({ ...body, name: "NODE_OPTIONS" }), 422);
+  await noLeak(await post({ operation: "restart", confirm: false }), 400);
+  await noLeak(await post({ operation: "restart", confirm: true, command: "submitted-secret-sentinel" }), 400);
+  await noLeak(await post(body), 200);
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).NEW_TOKEN, body.value);
+  const saved = JSON.parse(await noLeak(await fetch(url, { headers }), 200));
+  assert.equal(saved.variables.find((v: { name: string }) => v.name === "NEW_TOKEN").pendingRestart, true);
+  await noLeak(await post(body), 409);
+  await noLeak(await post({ ...body, overwrite: true }), 200);
+  await noLeak(await post({ ...body, name: "INHERITED_TOKEN" }), 409);
+  chmodSync(file, 0o644);
+  await noLeak(await post({ ...body, overwrite: true }), 503);
+  chmodSync(file, 0o600);
+  writeFileSync(file, 'broken submitted-secret-sentinel');
+  await noLeak(await fetch(url, { headers }), 503);
+  writeFileSync(file, '{}');
+  await noLeak(await post({ ...body, value: "x".repeat(110 * 1024) }), 413);
+  f.source.secrets = new SecretAdmin(file, undefined, {});
+  await noLeak(await post({ operation: "restart", confirm: true }), 503);
+  assert.equal(restarts, 0);
+  f.source.secrets = new SecretAdmin(file, () => { restarts++; }, {});
+  await noLeak(await post({ operation: "restart", confirm: true }), 202);
+  assert.equal(restarts, 0, "acknowledge before scheduling shutdown");
+  await noLeak(await post({ operation: "restart", confirm: true }), 409);
+  await noLeak(await post(body), 409);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(restarts, 1);
+  f.source.admin = undefined;
+  await noLeak(await fetch(url, { headers }), 503);
+  await noLeak(await post({ operation: "restart", confirm: true }), 503);
+  assert.doesNotMatch(JSON.stringify(logs), /submitted-secret-sentinel|inherited-secret-sentinel/);
+  // The private store is the only durable write: no task, timeline or audit gets the request body.
+  for (const entry of readdirSync(f.dataDir, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile()) assert.doesNotMatch(readFileSync(join(entry.parentPath, entry.name), "utf8"), /submitted-secret-sentinel|inherited-secret-sentinel/);
+  }
+});

@@ -1,0 +1,21 @@
+import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { openScopedSecrets, scopedSecretsFixture } from "./openbao-support";
+test.skip(!process.env.SCREENSHOTS, "Opt-in OpenBao Admin documentation screenshots");
+const out = resolve(process.cwd(), "../../docs/screenshots/openbao");
+for (const [name, theme, width, height] of [["light", "light", 1180, 1200], ["dark", "dark", 1180, 1200], ["mobile", "light", 390, 1000]] as const) test(name + " scoped backend secret form", async ({ page }) => {
+  mkdirSync(out, { recursive: true });
+  await page.request.post("__mock", { data: { reset: true } });
+  await scopedSecretsFixture(page);
+  await page.emulateMedia({ colorScheme: theme }); await page.setViewportSize({ width, height });
+  await openScopedSecrets(page);
+  await page.getByLabel("Secret scope").selectOption(name === "mobile" ? "main-process" : "channel");
+  if (name !== "mobile") await page.getByLabel("Secret channel").selectOption("C123ABC");
+  await page.getByLabel("Environment name", { exact: true }).fill(name === "mobile" ? "SLACK_BOT_TOKEN" : "GITHUB_TOKEN");
+  await page.getByLabel("Storage backend").scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "Save scoped secret" }).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  await page.mouse.move(0, 0); await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + name + ".png", scale: "css" });
+});

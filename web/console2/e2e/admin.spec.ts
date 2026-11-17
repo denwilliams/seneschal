@@ -1,0 +1,82 @@
+import { test, expect, type Page } from "@playwright/test";
+import { ADMIN_CONFIG } from "../mock/admin";
+import { rawText } from "./yaml-editor-helper";
+const adminApi = "**/api/v1/config";
+async function open(page: Page) {
+  await page.goto("./");
+  await page.getByRole("button", { name: "Admin configuration" }).click();
+  await expect.poll(() => rawText(page)).toBe(ADMIN_CONFIG);
+}
+test.beforeEach(async ({ page }) => { await page.request.post("__mock", { data: { reset: true } }); });
+test("raw editing, validation feedback, forms and unrelated sections round-trip in one draft", async ({ page }) => {
+  await open(page);
+  const raw = page.getByLabel("Raw configuration YAML");
+  await raw.fill(ADMIN_CONFIG.replace("name: Mock harness", "name: Edited harness"));
+  await page.getByRole("button", { name: "Basic settings", exact: true }).click();
+  await expect(page.getByLabel("Channel model", { exact: true })).toHaveValue("openai/gpt-5.4");
+  await page.getByLabel("Channel model explicit override").uncheck();
+  await expect(page.getByLabel("Channel model", { exact: true })).toBeDisabled();
+  await page.getByLabel("Default model", { exact: true }).fill("openai/gpt-5.4");
+  await page.getByLabel("Default thinking level", { exact: true }).selectOption("high");
+  await page.getByLabel("Channel thinking level", { exact: true }).selectOption("minimal");
+  await page.getByLabel("Description", { exact: true }).fill("New description");
+  await page.getByLabel("Preferences", { exact: true }).fill("Use concise bullets.");
+  await page.getByRole("button", { name: "Raw YAML", exact: true }).click();
+  const patched = await rawText(page);
+  expect(patched).toContain("name: Edited harness");
+  expect(patched).toContain("description: New description");
+  expect(patched).toContain("thinkingLevel: high");
+  expect(patched).toContain("preferences: Use concise bullets.");
+  expect(patched.slice(patched.indexOf("webConsole:"))).toBe(ADMIN_CONFIG.slice(ADMIN_CONFIG.indexOf("webConsole:")));
+  expect(patched).not.toContain("    model: openai/gpt-5.4");
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Nothing saved or applied" })).toBeVisible();
+  await page.getByRole("button", { name: "Validate and save", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Saved. Reload completed" })).toContainText("restart to rebind");
+  await page.getByRole("button", { name: "Reload persisted config" }).click();
+  await expect.poll(() => rawText(page)).toBe(patched);
+});
+test("malformed YAML and invalid settings retain drafts and show actionable feedback", async ({ page }) => {
+  await open(page);
+  const raw = page.getByLabel("Raw configuration YAML");
+  await raw.fill("defaults: [");
+  await page.getByRole("button", { name: "Basic settings", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("draft has not been discarded");
+  await expect.poll(() => rawText(page)).toBe("defaults: [");
+  await raw.fill("defaults: {thinkingLevel: invalid}");
+  await page.getByRole("button", { name: "Validate and save" }).click();
+  await expect(page.getByRole("alert")).toContainText("defaults.thinkingLevel");
+  await expect.poll(() => rawText(page)).toBe("defaults: {thinkingLevel: invalid}");
+});
+test("inherited fields, form edits in multiple channels and internal navigation keep the draft", async ({ page }) => {
+  await open(page);
+  await page.getByRole("button", { name: "Basic settings" }).click();
+  await page.getByLabel("Channel", { exact: true }).selectOption("project-x");
+  const model = page.getByLabel("Channel model", { exact: true });
+  await expect(model).toBeDisabled();
+  await expect(model).toHaveAttribute("placeholder", "anthropic/claude-sonnet-5-5");
+  await page.getByLabel("Channel model explicit override").check();
+  await model.fill("openai/gpt-5.4");
+  await page.getByLabel("Description", { exact: true }).fill("Project description");
+  await page.getByLabel("Channel", { exact: true }).selectOption("general");
+  await page.getByLabel("Description", { exact: true }).fill("General description");
+  await page.getByRole("link", { name: "Back to console" }).click();
+  await page.getByRole("button", { name: "Admin configuration" }).click();
+  await page.getByRole("button", { name: "Raw YAML", exact: true }).click();
+  await expect.poll(() => rawText(page)).toContain("Project description");
+  await expect.poll(() => rawText(page)).toContain("General description");
+});
+for (const failure of ["stale", "permission", "reload", "network"] as const) test(failure + " failure is visible and retains the draft", async ({ page }) => {
+  await open(page);
+  const raw = page.getByLabel("Raw configuration YAML");
+  const draft = ADMIN_CONFIG + "\n# keep my draft\n";
+  await raw.fill(draft);
+  await page.route(adminApi, async (route) => {
+    if (failure === "network") return route.abort("failed");
+    const error = failure === "stale" ? "The persisted config changed since you loaded it." : failure === "permission" ? "Cannot write config: read-only folder." : "Apply/reload failed. The previous file was restored.";
+    await route.fulfill({ status: failure === "stale" ? 409 : 500, contentType: "application/json", body: JSON.stringify({ error }) });
+  });
+  await page.getByRole("button", { name: "Validate and save" }).click();
+  await expect(page.getByRole("alert")).toContainText(failure === "network" ? "Network request failed" : failure === "stale" ? "changed since" : failure === "permission" ? "read-only" : "previous file was restored");
+  await expect.poll(() => rawText(page)).toBe(draft);
+});

@@ -1,0 +1,146 @@
+# The harness itself: the long-lived service that holds the Slack connection
+# and runs the agent. Built by docker-compose.
+#
+# Not to be confused with Dockerfile.sandbox and friends, which build the
+# images that a channel's `bash` commands run inside. Nothing of this image is
+# visible to those; they share a package list only because `sandbox.mode: host`
+# runs bash in this container, so both sides need the same CLIs.
+#
+# Multi-arch: builds for arm64 (Raspberry Pi 4/5) and amd64 alike.
+# Versioned, SHA-256-verified service CLIs and Go; extraction tools stay out of runtime.
+# dpkg selects the target image architecture, including under buildx emulation.
+# Pinned, not a floating `24` tag: a stale cached tag can be older than the harness supports. We track the current
+# Node LTS (24); the hard minimum is Node >= 22.19 (built-in SQLite with the lock timeout option). Bump
+# deliberately, after running the test suite on the new version. The harness also refuses to start on an older Node (src/util/runtime-check.ts).
+ARG NODE_VERSION=24.22.0
+
+FROM debian:bookworm-slim AS service-clis
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+  && rm -rf /var/lib/apt/lists/*
+COPY scripts/install-harness-clis.sh /tmp/install-harness-clis.sh
+RUN sh /tmp/install-harness-clis.sh
+COPY scripts/install-go.sh /tmp/install-go.sh
+RUN sh /tmp/install-go.sh
+
+# Wrangler (Cloudflare's CLI), at one exact version with a locked dependency tree (npm verifies each package's
+# integrity hash). Installed with lifecycle scripts off: nothing a dependency ships runs at build time. The target
+# image's own platform packages (workerd, esbuild) are resolved here, including under buildx emulation.
+FROM node:${NODE_VERSION}-bookworm-slim AS wrangler
+WORKDIR /opt/wrangler
+COPY scripts/wrangler/package.json scripts/wrangler/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+
+FROM node:${NODE_VERSION}-bookworm-slim AS build
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build && npm prune --omit=dev
+
+# webConsole2: a Vite + React + shadcn bundle, built here so the runtime image only carries static files. It imports one
+# type-only file from the harness (the API contract), which the app's path alias finds at ../../src/console2.
+FROM node:${NODE_VERSION}-bookworm-slim AS console2
+WORKDIR /app/web/console2
+COPY web/console2/package.json web/console2/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/console2 ./
+COPY src/console2/api-types.ts /app/src/console2/api-types.ts
+RUN npm run build
+
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+# Fail the build, not the first message, if the base image is older than the minimum.
+RUN node -e "const [a,b]=process.versions.node.split('.').map(Number); if (a<22||(a===22&&b<19)) { console.error('Node '+process.versions.node+' is too old: 22.19+ required'); process.exit(1); }"
+
+# The harness is opinionated about tooling: channels can declare `requires`
+# and refuse to run without it, so the common CLIs ship in the image.
+#   git, gh  — repository work
+#   acli, linear — Atlassian and Linear work (runtime authentication only)
+#   go, gofmt — pinned Go toolchain for builds/tests (pure Go; no C compiler)
+#   jq       — JSON wrangling in bash-enabled channels
+#   ripgrep  — fast search
+#   ca-certificates, curl — TLS and fetching
+#   python3 — descriptor-anchored safe file traversal for static artifacts
+#   sqlite3 — structured SQLite tools (enabled by default)
+#   poppler-utils — `pdftotext`, used to read PDFs people attach. The harness
+#     has a built-in fallback, but poppler is right about font encodings in a
+#     way the fallback is not, so a PDF library is much better with it present.
+#   docker-ce-cli — talks to the daemon only with the opt-in sandbox Compose
+#     override; this image never starts a Docker daemon itself.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git jq ripgrep poppler-utils python3 sqlite3 util-linux gnupg \
+  && mkdir -p -m 755 /etc/apt/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+  && curl -fsSL https://download.docker.com/linux/debian/gpg \
+       -o /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+       > /etc/apt/sources.list.d/docker.list \
+  && apt-get update && apt-get install -y --no-install-recommends gh docker-ce-cli \
+  && apt-get purge -y gnupg && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=service-clis /usr/local/bin/ /usr/local/bin/
+COPY --from=service-clis /usr/local/share/doc/linear/ /usr/local/share/doc/linear/
+COPY --from=service-clis /usr/local/go/ /usr/local/go/
+# Wrangler, for the Cloudflare deployer. Read-only to every channel; credentials are the channel's own
+# (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID in its env file), never baked in. Telemetry off.
+COPY --from=wrangler /opt/wrangler /opt/wrangler
+RUN ln -s /opt/wrangler/node_modules/.bin/wrangler /usr/local/bin/wrangler
+ENV WRANGLER_SEND_METRICS=false
+# Use the bundled compiler rather than silently downloading another toolchain.
+# Projects needing a newer Go can explicitly override GOTOOLCHAIN at runtime.
+ENV PATH=/usr/local/go/bin:${PATH} \
+    GOTOOLCHAIN=local
+
+# Keep the bundled browser CLI on PATH for the restricted `exec` command. The
+# browser payload is installed at build time, rather than downloading when an
+# assistant first asks to test something. Chromium is the only browser shipped:
+# other engines remain an explicit image-size/capability decision.
+ENV NODE_ENV=production \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PATH=/app/node_modules/.bin:${PATH}
+WORKDIR /app
+
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY package.json ./
+# An image-owned config forces the ARM-compatible bundled Chromium instead of
+# Playwright CLI's default Chrome channel (which Google does not ship for arm64).
+# The command policy below sets PWTEST_CLI_GLOBAL_CONFIG=/app to use this file.
+COPY scripts/playwright-qa.json ./.playwright/cli.config.json
+RUN playwright install --with-deps chromium \
+ && chmod -R a+rX /ms-playwright
+# The skills the harness ships with. Read from disk at runtime rather than
+# compiled in, and read-only to every channel — without them the agent still
+# runs, it just writes its own skills worse.
+COPY skills ./skills
+# Factory lifecycle skills are selected per channel at runtime. They must ship
+# beside the built-ins or configured factory channels silently lose them.
+COPY factory-skills ./factory-skills
+# Administration skills are read from disk too, and loaded only for the channel configured `admin: true`.
+COPY admin-skills ./admin-skills
+# Skills an agent set ships for how its subagents work together (the software factory's pipeline and handoffs).
+# Loaded from disk for any channel that uses the set; without this the roles run without their orchestration skills.
+COPY agent-set-skills ./agent-set-skills
+COPY web ./web
+COPY --from=console2 /app/web/console2/dist ./web/console2/dist
+
+# Config and state are mounted; nothing durable lives in the image.
+VOLUME ["/app/data", "/app/config"]
+
+# Docker Compose's optional sandbox override can mount a socket whose group is
+# remapped by the container runtime. The fixed entrypoint discovers that group,
+# then drops to `node` before starting any harness/agent code.
+COPY scripts/docker-harness-entrypoint.sh /usr/local/bin/docker-harness-entrypoint
+RUN chmod 755 /usr/local/bin/docker-harness-entrypoint
+
+# Socket Mode: the container makes an outbound WebSocket connection to Slack.
+# No ports are published and no inbound firewall rule is needed.
+ENTRYPOINT ["/usr/local/bin/docker-harness-entrypoint"]
+CMD ["node", "dist/index.js"]

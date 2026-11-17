@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { SecretAdmin } from "../config/managed-env.ts";
+import { ScopedSecretAdmin } from "../config/scoped-secrets.ts";
+import { fixture } from "./fixture.ts";
+import { logger } from "../util/log.ts";
+
+test("scoped backend Admin API: guarded writes in all scopes, metadata only, no credential/value leaks", async (t) => {
+  const logs: unknown[] = [];
+  for (const level of ["info", "warn", "error", "debug"] as const) t.mock.method(logger, level, (...args: unknown[]) => logs.push(args));
+  const f = fixture();
+  const writes: unknown[] = [];
+  let fail = false;
+  f.source.admin = { configPath: f.dataDir + "/config.yaml", dataDir: f.dataDir };
+  f.source.secrets = new SecretAdmin(undefined, undefined, {});
+  f.source.scopedSecrets = new ScopedSecretAdmin([{ id: "openbao", label: "OpenBao", enabled: () => true, save: async (...args) => {
+    if (fail) throw new Error("submitted-private-value backend-auth-value");
+    writes.push(args);
+  } }], () => [{ id: "C123", name: "engineering" }]);
+  await f.server.start(); t.after(() => f.server.stop());
+  const url = `http://127.0.0.1:${(f.server.address() as { port: number }).port}/console2/api/v1/secrets`;
+  const headers = { host: "console.test", "content-type": "application/json", "x-console-admin": "1" };
+  const body = { operation: "backend-save", backend: "openbao", name: "TOKEN", value: "submitted-private-value", overwrite: true, scope: { kind: "global-channel" } };
+  const post = (data: unknown, extra: Record<string, string> = {}) => fetch(url, { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(data) });
+  const check = async (res: Response, status: number) => {
+    assert.equal(res.status, status); assert.equal(res.headers.get("cache-control"), "no-store");
+    const text = await res.text(); assert.doesNotMatch(text, /submitted-private-value|backend-auth-value/); return text;
+  };
+  const initial = JSON.parse(await check(await fetch(url, { headers }), 200));
+  assert.deepEqual(initial.scoped.backends, [{ id: "openbao", label: "OpenBao", enabled: true, canDelete: false }]);
+  assert.equal(initial.scoped.channels[0].id, "C123");
+  for (const scope of [{ kind: "global-channel" }, { kind: "main-process" }, { kind: "channel", channel: "C123" }]) await check(await post({ ...body, scope }), 200);
+  assert.equal(writes.length, 3);
+  await check(await fetch(url, { headers }), 200);
+  for (const scope of [{ kind: "other" }, { kind: "main-process", channel: "C123" }]) await check(await post({ ...body, scope }), 400);
+  await check(await post({ ...body, scope: { kind: "channel", channel: "C999" } }), 422);
+  await check(await post({ ...body, backend: "unknown" }), 503);
+  await check(await post({ ...body, overwrite: false }), 422);
+  await check(await post({ ...body, name: "BAO_TOKEN" }), 422);
+  await check(await post(body, { "x-console-admin": "" }), 403);
+  await check(await post(body, { origin: "https://evil.test" }), 403);
+  await check(await post(body, { "sec-fetch-site": "cross-site" }), 403);
+  await check(await post(body, { "content-type": "text/plain" }), 415);
+  fail = true; await check(await post(body), 503);
+  f.source.admin = undefined;
+  await check(await post(body), 503);
+  await check(await fetch(url, { headers }), 503);
+  assert.equal(writes.length, 3);
+  assert.doesNotMatch(JSON.stringify(logs), /submitted-private-value|backend-auth-value/);
+});

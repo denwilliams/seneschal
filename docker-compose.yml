@@ -1,0 +1,47 @@
+services:
+  harness:
+    # Named explicitly: the repo has several Dockerfiles and only this one
+    # builds the harness. The rest build sandbox images for bash channels,
+    # which are built by hand and referenced by tag from the config.
+    build:
+      context: .
+      dockerfile: Dockerfile.harness
+    image: seneschal:latest
+    container_name: seneschal
+    restart: unless-stopped
+
+    # Passed through whole, so whichever provider key .env names — deepseek,
+    # openai, anthropic, or one added later — reaches the harness without
+    # editing this file. Optional, because credentials do not have to be here
+    # at all: `npm run login` puts a subscription in data/auth.json instead.
+    # (The mapping form needs Compose v2.24+.)
+    env_file:
+      - path: .env
+        required: false
+
+    # Socket Mode means outbound-only. No ports, no reverse proxy, no port
+    # forwarding on the home router.
+    environment:
+      # These two really are required, and failing at `up` beats failing on the
+      # first message. No model key is checked here on purpose: the default
+      # provider is deepseek, and a subscription login leaves no key in the
+      # environment at all — `npm run doctor` is what reports having none.
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN in .env}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:?set SLACK_APP_TOKEN in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+    volumes:
+      # Channel workspaces, memory and transcripts. Back this up.
+      - ./data:/app/data
+      # Config is read-only to the container.
+      - ./config:/app/config:ro
+
+    # Modest limits so a runaway session cannot take down a Pi.
+    mem_limit: 1500m
+    cpus: 2.0
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,33 @@
+# Sandbox image for a Home Assistant channel.
+#
+#   docker build -f Dockerfile.home-assistant -t harness-home-assistant:latest .
+#
+# The MCP connector already covers "turn the lamp off". This image is for the
+# other half of a home-automation channel: poking the REST API, watching MQTT,
+# reading an export of the recorder database, and charting what came back.
+#
+# Set it on the channel with:
+#   sandbox: { mode: docker, image: harness-home-assistant:latest, ... }
+# See RECIPES.md — "Giving the house channel a shell of its own".
+FROM debian:bookworm-slim
+
+#   curl, jq          — the Home Assistant REST API and its JSON
+#   mosquitto-clients — mosquitto_sub/pub against the MQTT broker
+#   sqlite3           — query a copy of home-assistant_v2.db
+#   gnuplot-nox       — render a chart to PNG with no X server, so the agent
+#                       can post one back to Slack
+#   python3 + venv    — where anything more than a shell script ends up; the
+#                       agent creates the venv inside /workspace so it survives
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl jq git ripgrep less \
+      mosquitto-clients sqlite3 gnuplot-nox \
+      python3 python3-venv python3-requests iputils-ping \
+  && rm -rf /var/lib/apt/lists/*
+
+# Unprivileged, and uid 1000 to match the host user that owns the bind-mounted
+# workspace. Change it here (or set sandbox.user) if your host uid differs.
+RUN useradd --create-home --uid 1000 sandbox && mkdir -m 1777 /repos
+USER sandbox
+
+WORKDIR /workspace
+CMD ["bash"]

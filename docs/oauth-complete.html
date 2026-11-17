@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <!-- This page deliberately has no external assets, analytics, forms, or network requests. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-7+QhNwOkssf4Fz3MWGiVetpj4zV9XvkSc/kkTPxwesI='; style-src 'sha256-HQFtWLRqZV2PYda5T9VZgdRIdw6dPhGbAR4CNT86rAo='; base-uri 'none'; form-action 'none'">
+  <title>OAuth authorization complete</title>
+  <style>body{font:16px system-ui,sans-serif;line-height:1.45;max-width:48rem;margin:3rem auto;padding:0 1rem;color:#17202a}textarea{box-sizing:border-box;width:100%;min-height:9rem;font:12px ui-monospace,monospace}button{padding:.6rem 1rem;font:inherit}p.notice{color:#8a2d0b}</style>
+</head>
+<body>
+  <main>
+    <h1>Authorization result</h1>
+    <p id="message">Preparing a copyable result…</p>
+    <textarea id="payload" readonly aria-label="Authorization payload"></textarea>
+    <p><button id="copy" type="button">Copy payload</button></p>
+    <p class="notice">Treat this payload like a one-time password. Paste it only into the authorized Slack channel, then delete the Slack message. This page does not send it anywhere.</p>
+  </main>
+  <script>
+    (() => {
+      const message = document.getElementById("message");
+      const field = document.getElementById("payload");
+      const copy = document.getElementById("copy");
+      const params = new URLSearchParams(location.search);
+      const state = params.get("state");
+      const code = params.get("code");
+      const error = params.get("error");
+      const valid = typeof state === "string" && state.length > 0 && ((typeof code === "string" && code.length > 0) !== (typeof error === "string" && error.length > 0));
+      if (!valid) {
+        message.textContent = "The authorization response was incomplete. Return to Slack and start again.";
+        field.hidden = true;
+        copy.hidden = true;
+        history.replaceState(null, "", location.pathname);
+        return;
+      }
+      const json = JSON.stringify(error ? {version:1,state,error} : {version:1,state,code});
+      const bytes = new TextEncoder().encode(json);
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      field.value = "oauth-result-v1." + btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      message.textContent = error ? "Authorization was not approved. Copy this result to tell the harness." : "Copy this result and paste it into Slack to finish authorization.";
+      history.replaceState(null, "", location.pathname);
+      copy.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(field.value); copy.textContent = "Copied"; }
+        catch { field.focus(); field.select(); copy.textContent = "Select and copy"; }
+      });
+    })();
+  </script>
+</body>
+</html>

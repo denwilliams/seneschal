@@ -1,0 +1,58 @@
+{
+  "name": "seneschal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI agent harness built on the Pi SDK with Slack as its primary interface. Per-channel isolation, opt-in sharing, runs on a Raspberry Pi.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "node --experimental-strip-types src/cli/build-console2.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prestart": "npm run build",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "node --env-file-if-exists=.env --experimental-strip-types --watch src/index.ts",
+    "test": "node --experimental-strip-types --test --test-timeout=120000 'src/**/*.test.ts'",
+    "doctor": "node --env-file-if-exists=.env --experimental-strip-types src/cli/doctor.ts",
+    "login": "node --env-file-if-exists=.env --experimental-strip-types src/cli/login.ts",
+    "migrate-skills": "node --env-file-if-exists=.env --experimental-strip-types src/cli/migrate-skills.ts",
+    "slack-user-token": "node --env-file-if-exists=.env --experimental-strip-types src/cli/slack-user-token.ts",
+    "connector-auth": "node --env-file-if-exists=.env --experimental-strip-types src/cli/connector-auth.ts",
+    "secrets": "node --env-file-if-exists=.env --experimental-strip-types src/cli/secrets.ts",
+    "console2:install": "npm ci --prefix web/console2",
+    "console2:build": "npm run build --prefix web/console2",
+    "console2:dev": "npm run dev --prefix web/console2",
+    "console2:test": "npm test --prefix web/console2",
+    "console2:typecheck": "npm run typecheck --prefix web/console2"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.0",
+    "@earendil-works/pi-agent-core": "^1.5.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-durable": "1.5.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@playwright/cli": "^0.1.19",
+    "@slack/bolt": "^5.0.0",
+    "croner": "^10.0.1",
+    "jose": "^6.2.13",
+    "jpeg-js": "^0.4.4",
+    "marked": "^18.0.14",
+    "pdfjs-dist": "^6.2.108",
+    "pngjs": "^7.0.0",
+    "typebox": "^1.3.7",
+    "undici": "^7.30.1",
+    "yaml": "^2.9.0",
+    "zod": "^4.6.6"
+  },
+  "overrides": {
+    "undici@7": "$undici"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,23 @@
+import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+test.skip(!process.env.SCREENSHOTS, "Opt-in secrets administration documentation screenshots");
+const out = resolve(process.cwd(), "../../docs/screenshots/secret-admin");
+for (const [name, theme, width, height] of [["light", "light", 1180, 1050], ["dark", "dark", 1180, 1050], ["mobile", "light", 390, 844]] as const) test(name + " secret admin and restart confirmation", async ({ page }) => {
+  mkdirSync(out, { recursive: true });
+  await page.request.post("__mock", { data: { reset: true } });
+  await page.emulateMedia({ colorScheme: theme });
+  await page.setViewportSize({ width, height });
+  await page.goto("./#/admin");
+  await page.getByRole("button", { name: "Secrets and restart", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Environment variable names" })).toContainText("SLACK_BOT_TOKEN");
+  await expect(page.getByTestId("connection")).toContainText("Connected");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + name + ".png", scale: "css" });
+  await page.getByRole("button", { name: "Restart harness…", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + name + "-restart.png", scale: "css" });
+});

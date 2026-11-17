@@ -1,0 +1,34 @@
+import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+test.skip(!process.env.SCREENSHOTS, "Opt-in admin documentation screenshots");
+const out = resolve(process.cwd(), "../../docs/screenshots/config-admin");
+for (const theme of ["light", "dark"] as const) test(theme + " admin forms and raw editor", async ({ page }) => {
+  mkdirSync(out, { recursive: true });
+  await page.request.post("__mock", { data: { reset: true } });
+  await page.emulateMedia({ colorScheme: theme });
+  await page.setViewportSize({ width: 1180, height: 1020 });
+  await page.goto("./#/admin");
+  await expect(page.getByLabel("Raw configuration YAML")).toBeVisible();
+  await expect(page.getByTestId("connection")).toContainText("Connected");
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + theme + "-raw.png", scale: "css" });
+  await page.getByRole("button", { name: "Basic settings" }).click();
+  await expect(page.getByLabel("Description", { exact: true })).toBeVisible();
+  await page.getByLabel("Channel model explicit override").uncheck();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + theme + "-forms.png", scale: "css" });
+});
+test("390px forms have no horizontal scroll", async ({ page }) => {
+  await page.request.post("__mock", { data: { reset: true } });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./#/admin");
+  await page.getByRole("button", { name: "Basic settings" }).click();
+  await expect(page.getByLabel("Default model", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  await expect(page.getByTestId("connection")).toContainText("Connected");
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/mobile-forms.png", scale: "css" });
+});

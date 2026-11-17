@@ -1,0 +1,38 @@
+# Opt-in Docker backend for channels with `sandbox.mode: docker`.
+#
+# This is deliberately a separate Compose file. The Docker socket gives the
+# harness control of the host Docker daemon; do not enable it for an untrusted
+# harness deployment. Child channel containers never receive this socket.
+#
+# Before starting, provide the absolute host path (Linux example):
+#   export HARNESS_DOCKER_DATA_DIR="$(pwd)/data"
+#   docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d --build
+#
+# HARNESS_DOCKER_DATA_DIR must name the same host directory that is mounted at
+# /app/data. Docker's daemon resolves bind-mount sources on the *host*, not in
+# this harness container. The harness translates /app/data/channels/<id>/...
+# to this path before it creates each channel sandbox.
+#
+# The same mapping covers the other per-container mounts, all under data/:
+# the channel's own skills (/skills/channel, ro), its assigned skill collections
+# (/skills/<collection>, ro or rw) and the operator's global bin
+# (/global/bin, ro, shared/global-bin on the host). Nothing else of data/ is
+# mounted. No extra Compose setup is needed for them.
+services:
+  harness:
+    environment:
+      HARNESS_DOCKER_DATA_DIR: ${HARNESS_DOCKER_DATA_DIR:?set HARNESS_DOCKER_DATA_DIR to the absolute host path of this deployment's data directory}
+    # The image entrypoint reads the mounted socket's actual group then drops
+    # to the unprivileged `node` user with that one supplementary group. This
+    # works on Linux and Docker Desktop, which can remap the socket's group.
+    volumes:
+      # Compose merges bind mounts by target, so this replaces ./data:/app/data
+      # from docker-compose.yml with the exact host path passed to Docker.
+      - type: bind
+        source: ${HARNESS_DOCKER_DATA_DIR:?set HARNESS_DOCKER_DATA_DIR to the absolute host path of this deployment's data directory}
+        target: /app/data
+      # Required only by the harness. It is never mounted into a channel's
+      # sandbox container.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock

@@ -1,0 +1,13 @@
+# Lets the admin channel's agent change the harness config (admin_config_edit).
+#
+# The default compose file mounts ./config read-only, so a compromised or mistaken agent cannot rewrite its own configuration.
+# Using this override is the decision to let the admin channel do that, within the limits in src/config/edit-policy.ts (the
+# admin channel's own entry, secrets, shells, sandboxes, model providers and the web console stay edits on the host).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.admin-config.yml up -d
+#
+# Every change is backed up to data/config-backups/ first and logged to data/shared/audit/config-edits.jsonl.
+services:
+  harness:
+    volumes:
+      - ./config:/app/config

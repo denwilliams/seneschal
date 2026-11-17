@@ -1,0 +1,20 @@
+import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { keychainFixture } from "./keychain-support";
+test.skip(!process.env.SCREENSHOTS, "Opt-in unavailable-Keychain screenshots (mock fixtures only)");
+const out = resolve(process.cwd(), "../../docs/screenshots/keychain-unavailable");
+for (const [name, theme, width, height] of [["light", "light", 1180, 1050], ["dark", "dark", 1180, 1050], ["mobile", "light", 390, 844]] as const) test(name + " host bash environment", async ({ page }) => {
+  mkdirSync(out, { recursive: true });
+  await page.request.post("__mock", { data: { reset: true } });
+  await page.emulateMedia({ colorScheme: theme }); await page.setViewportSize({ width, height });
+  await keychainFixture(page, false);
+  await page.goto("./#/admin");
+  await page.getByRole("button", { name: "Secrets and restart", exact: true }).click();
+  await expect(page.getByRole("note").filter({ hasText: "macOS Keychain unavailable" })).toBeVisible();
+  await page.getByLabel("Environment name", { exact: true }).fill("EXAMPLE_API_KEY");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  if (name === "mobile") await page.locator("form").evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await page.mouse.move(0, 0); await page.waitForTimeout(250);
+  await page.screenshot({ path: out + "/" + name + ".png", scale: "css", fullPage: true });
+});

@@ -1,0 +1,11 @@
+# Keep host-built output and dependency trees out of image build contexts: images install and build their own.
+**/node_modules
+web/console2/dist
+web/console2/test-results
+web/console2/playwright-report
+
+# Never send private managed environment values to the image builder.
+private-env/
+secrets/
+*.env
+.env

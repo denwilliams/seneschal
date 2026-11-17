@@ -1,0 +1,38 @@
+# Add this to config/harness.yaml after installing the pinned mcp-server-sftp
+# source described in docs/sftp-mcp.md. Every ${...} value is read from the
+# enabled channel's env file; no connection detail belongs in this file.
+connectors:
+  sftp-files:
+    transport: stdio
+    description: SFTP-only remote file management, confined to the configured remote root.
+    # `env -u SFTP_PASSWORD` makes key authentication mandatory even if a
+    # password variable exists in the harness process environment.
+    command: env
+    args: [-u, SFTP_PASSWORD, node, "${SFTP_MCP_SERVER_PATH}"]
+    env:
+      SFTP_HOST: "${SFTP_HOST}"
+      SFTP_PORT: "${SFTP_PORT}"
+      SFTP_USER: "${SFTP_USER}"
+      SFTP_PRIVATE_KEY: "${SFTP_PRIVATE_KEY_PATH}"
+      # This must be the single allowed subtree inside the SFTP account's
+      # server-enforced chroot, for example /files. It is not optional.
+      SFTP_ALLOWED_PREFIX: "${SFTP_REMOTE_ROOT}"
+      SFTP_MAX_READ_BYTES: "${SFTP_MAX_READ_BYTES}"
+    # Deliberately omit transfer, bulk, and sync operations. The upstream
+    # transfer tools accept arbitrary host-local paths; the remaining tools
+    # manage remote text files without SSH command execution.
+    allowTools:
+      - sftp_list
+      - sftp_read
+      - sftp_write
+      - sftp_delete
+      - sftp_mkdir
+      - sftp_rmdir
+      - sftp_rename
+      - sftp_stat
+      - sftp_exists
+
+channels:
+  engineering:
+    share:
+      connectors: [sftp-files]

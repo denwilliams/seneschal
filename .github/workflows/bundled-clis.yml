@@ -1,0 +1,75 @@
+name: Bundled CLI Docker smoke
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.harness'
+      - 'Dockerfile.sandbox'
+      - 'scripts/install-harness-clis.sh'
+      - 'scripts/smoke-harness-clis.sh'
+      - 'scripts/wrangler/package.json'
+      - 'scripts/wrangler/package-lock.json'
+      - 'scripts/install-go.sh'
+      - 'scripts/smoke-go.sh'
+      - 'scripts/smoke-python.sh'
+      - 'src/cli/smoke-go-image.ts'
+      - 'src/agent/sandbox.ts'
+      - 'src/agent/sandbox-lifecycle.ts'
+      - 'src/config/schema.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'src/agent/bundled-clis.test.ts'
+      - 'src/agent/go-toolchain.test.ts'
+      - 'src/agent/python-toolchain.test.ts'
+      - '.github/workflows/bundled-clis.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.harness'
+      - 'Dockerfile.sandbox'
+      - 'scripts/install-harness-clis.sh'
+      - 'scripts/smoke-harness-clis.sh'
+      - 'scripts/wrangler/package.json'
+      - 'scripts/wrangler/package-lock.json'
+      - 'scripts/install-go.sh'
+      - 'scripts/smoke-go.sh'
+      - 'scripts/smoke-python.sh'
+      - 'src/cli/smoke-go-image.ts'
+      - 'src/agent/sandbox.ts'
+      - 'src/agent/sandbox-lifecycle.ts'
+      - 'src/config/schema.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'src/agent/python-toolchain.test.ts'
+      - '.github/workflows/bundled-clis.yml'
+permissions:
+  contents: read
+concurrency:
+  group: bundled-clis-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        # PRs smoke amd64 only; main also covers arm64 after merge.
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04","ubuntu-24.04-arm"]') }}
+        image: [harness, sandbox]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build actual agent command-builder smoke
+        run: npm ci && npm run build
+      - name: Build image (native architecture)
+        run: docker build -f Dockerfile.${{ matrix.image }} -t bundled-cli-smoke .
+      - name: Smoke as non-root, offline, without credentials
+        run: |
+          user=sandbox
+          if [ '${{ matrix.image }}' = harness ]; then user=node; fi
+          docker run --rm -i --network none --user "$user" --entrypoint /bin/sh \
+            bundled-cli-smoke -s < scripts/smoke-harness-clis.sh
+          docker run --rm -i --network none --user "$user" --entrypoint /bin/sh \
+            bundled-cli-smoke -s < scripts/smoke-go.sh
+          docker run --rm -i --network none --user "$user" --entrypoint /bin/sh \
+            bundled-cli-smoke -s < scripts/smoke-python.sh
+          node dist/cli/smoke-go-image.js bundled-cli-smoke "$user"

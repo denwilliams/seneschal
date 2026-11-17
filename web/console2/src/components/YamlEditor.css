@@ -1,0 +1,20 @@
+.yaml-editor .cm-editor { color: hsl(var(--foreground)); }
+.yaml-editor .cm-editor.cm-focused { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.yaml-editor .cm-scroller { height: 28rem; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1.65; }
+.yaml-editor .cm-content { padding: 8px 0; caret-color: hsl(var(--foreground)); }
+.yaml-editor .cm-line { padding: 0 8px; }
+.yaml-editor .cm-gutters { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); border-color: hsl(var(--border)); }
+.yaml-editor .cm-foldGutter .cm-gutterElement { cursor: pointer; padding: 0 5px; }
+.yaml-editor .cm-cursor { border-left-color: hsl(var(--foreground)); }
+.yaml-editor .cm-selectionBackground, .yaml-editor .cm-focused .cm-selectionBackground { background: hsl(var(--foreground) / 15%); }
+.yaml-editor .cm-foldPlaceholder { background: hsl(var(--muted)); border-color: hsl(var(--border)); color: hsl(var(--foreground)); padding: 0 5px; }
+.yaml-editor .yaml-key { color: #1756a9; }
+.yaml-editor .yaml-value { color: #80601b; }
+.yaml-editor .yaml-comment { color: #596573; font-style: italic; }
+.yaml-editor .yaml-meta { color: #873aa0; }
+.yaml-editor .yaml-punctuation { color: #596573; }
+.dark .yaml-editor .yaml-key { color: #8cbcff; }
+.dark .yaml-editor .yaml-value { color: #e4c17d; }
+.dark .yaml-editor .yaml-comment { color: #a0adbd; }
+.dark .yaml-editor .yaml-meta { color: #d5a1e6; }
+.dark .yaml-editor .yaml-punctuation { color: #a0adbd; }

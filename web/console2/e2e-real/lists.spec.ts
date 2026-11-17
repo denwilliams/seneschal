@@ -1,0 +1,34 @@
+import { expect, test } from "@playwright/test";
+
+test("human list edits persist through the real API and Content-Security-Policy", async ({ page }) => {
+  const violations: string[] = [];
+  page.on("console", (msg) => { if (/Content Security Policy|violates.*directive/i.test(msg.text())) violations.push(msg.text()); });
+  await page.goto("/console2/#/c/CCHAN001?tab=state");
+  const lists = page.locator("section").filter({ has: page.getByRole("heading", { name: "Channel lists", exact: true }) });
+  await lists.getByLabel("New list name").fill("browser_tasks");
+  await lists.getByRole("button", { name: "Create list" }).click();
+  await lists.getByLabel("New item title").fill("Real API task");
+  await lists.getByRole("button", { name: "Add item", exact: true }).click();
+  await expect(lists.locator("summary").filter({ hasText: "Real API task" })).toBeVisible();
+  await lists.getByText("List settings and custom columns", { exact: true }).click();
+  await lists.getByLabel("New column name").fill("owner");
+  await lists.getByRole("button", { name: "Add column", exact: true }).click();
+  await expect(lists.getByRole("button", { name: "Remove owner" })).toBeVisible();
+  await lists.locator("summary").filter({ hasText: "Real API task" }).click();
+  await lists.getByLabel("notes", { exact: true }).fill("<script>not executable</script>");
+  await lists.getByLabel("completed", { exact: true }).selectOption("true");
+  await lists.getByLabel(/^owner/).fill("Casey");
+  await lists.getByRole("button", { name: "Save item" }).click();
+  await expect(lists.locator("summary").filter({ hasText: "Real API task" })).toContainText("✓");
+  await page.reload();
+  await lists.getByLabel("List", { exact: true }).selectOption("browser_tasks");
+  await lists.locator("summary").filter({ hasText: "Real API task" }).click();
+  await expect(lists.getByLabel("notes", { exact: true })).toHaveValue("<script>not executable</script>");
+  await expect(lists.getByLabel(/^owner/)).toHaveValue("Casey");
+  await expect(lists.getByLabel("completed", { exact: true })).toHaveValue("true");
+  const response = await page.request.get("/console2/api/v1/channels/CCHAN001/lists?list=browser_tasks");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["cache-control"]).toBe("no-store");
+  expect((await response.json()).items[0]).toMatchObject({ title: "Real API task", owner: "Casey", completed: true });
+  expect(violations).toEqual([]);
+});

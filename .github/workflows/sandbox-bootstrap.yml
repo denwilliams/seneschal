@@ -1,0 +1,48 @@
+name: Sandbox bootstrap Docker regressions
+on:
+  pull_request:
+    paths:
+      - 'src/agent/sandbox*.ts'
+      - 'src/config/schema.ts'
+      - 'package*.json'
+      - '.github/workflows/sandbox-bootstrap.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/agent/sandbox*.ts'
+      - 'src/config/schema.ts'
+      - 'package*.json'
+      - '.github/workflows/sandbox-bootstrap.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.0' # current LTS, same as the Dockerfiles
+          cache: npm
+      - run: npm ci
+      - name: Build minimal test image (no external CLI downloads or credentials)
+        run: |
+          docker build -t seneschal-sandbox:latest - <<'DOCKERFILE'
+          FROM debian:bookworm-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends bash git coreutils \
+              && rm -rf /var/lib/apt/lists/* \
+              && useradd --create-home --uid 1000 sandbox \
+              && mkdir -p /workspace /repos && chmod 1777 /repos
+          USER sandbox
+          DOCKERFILE
+      - name: Real Docker reproducer, initialization guards and lifecycle regressions
+        env:
+          HARNESS_REQUIRE_DOCKER_TESTS: '1'
+          HARNESS_SANDBOX_TEST_IMAGE: seneschal-sandbox:latest
+        run: node --experimental-strip-types --test src/agent/sandbox*.test.ts
+      - run: npm run typecheck
+      - run: npm run build

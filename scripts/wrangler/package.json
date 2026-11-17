@@ -1,0 +1,14 @@
+{
+  "name": "harness-wrangler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned Wrangler (Cloudflare's CLI) for the harness images. Exact version, locked dependency tree with integrity hashes.",
+  "dependencies": {
+    "wrangler": "4.151.1"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.30.1"
+    }
+  }
+}
