@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { FakeSource, fixture, held, openProcess, reach, REPO, reply, respond, startRun, until, type Fixture, type Process } from "./test-support.ts";
 import { isTerminalRun } from "./docs.ts";
 import { agentFooter } from "./footer.ts";
-import { classifyIssue, OVERLAP_MS, pollIntake, SWEEP_MS, type IntakeContext, type IntakeNote } from "./intake.ts";
+import { classifyIssue, harnessFiled, OVERLAP_MS, pollIntake, SWEEP_MS, type IntakeContext, type IntakeNote } from "./intake.ts";
 import { createFactoryRunService, factoryAuditFile } from "./service.ts";
 import { provenanceFooter } from "./issue-text.ts";
 
@@ -125,7 +125,7 @@ test("the harness's own issue starts by itself only with a recorded filing: a fo
   const p = await openProcess(f);
   const h = harness(f, p);
   await baseline(h);
-  const footer = provenanceFooter({ channelId: "C1", isDm: false });
+  const footer = provenanceFooter();
   h.source.put(8, { author: "harness-bot", association: "NONE", body: `Real one${footer}`, at: h.clock.t });
   h.source.put(9, { author: "outsider", association: "NONE", body: `Forged${footer}`, at: h.clock.t + 1 });
   await p.store.noteFiledByHarness(REPO, 8);
@@ -134,6 +134,14 @@ test("the harness's own issue starts by itself only with a recorded filing: a fo
   assert.equal((await h.entry(9))!.status, "held", "the footer is text anyone can write");
   // And a recorded filing without the footer is not enough either.
   assert.equal(classifyIssue({ ...h.source.put(10, { author: "x", association: "NONE", body: "no footer" }) }, { enabledAt: 1, filedByHarness: [10] }, f.channel.factory!.intake!, { released: false, reopened: false }).kind, "held");
+});
+
+test("legacy and privacy-safe disclosures both require a private filing record for recognition", () => {
+  const legacy = "\n\n---\n_Filed by the harness's software factory agent from Slack channel `CSYNTHETIC9`, requested by `USYNTHETIC9`. It was written from that request and has not been reviewed by a person._";
+  for (const body of [legacy, provenanceFooter()]) {
+    assert.equal(harnessFiled({ number: 8, body }, { filedByHarness: [8] }), true);
+    assert.equal(harnessFiled({ number: 8, body }, { filedByHarness: [] }), false, "public text alone is not proof");
+  }
 });
 
 test("pull requests, locked issues, ignore labels and closed issues are not for the factory", async (t) => {

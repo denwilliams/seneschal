@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeEach, test, type TestContext } from "node:test";
 import { emptyFactoryRun, type FactoryRunData } from "./docs.ts";
 import { forgetFiled } from "./issue-ledger.ts";
-import { ISSUE_LIMITS } from "./issue-text.ts";
+import { ISSUE_LIMITS, provenanceFooter } from "./issue-text.ts";
 import { createFactoryRunService, factoryAuditFile, FactoryRunError, type FactoryRunStore } from "./service.ts";
 import { fixture, REPO, type FixtureOptions } from "./test-support.ts";
 
@@ -57,9 +57,9 @@ test("with filing on, the issue is created in the factory's only repository with
   const [made] = f.github.created;
   assert.deepEqual([made!.repo, made!.title, made!.labels], [REPO, ask.title, ["status:triage"]]);
   assert.ok(made!.body.startsWith(ask.body), "what was written comes first");
-  assert.match(made!.body, /\n---\n_Filed by the harness's software factory agent from Slack channel `C1` \(\[thread\]\(https:\/\/slack\.com\/archives\/C1\/p1700000000000100\)\), requested by `UASKER1`\./);
+  assert.equal(made!.body, `${ask.body}${provenanceFooter()}`, "the complete public body contains no source attribution, including in hidden comments");
   const [line] = audit();
-  assert.deepEqual([line!.event, line!.repo, line!.issue, line!.url, line!.title, line!.userId, line!.threadKey, line!.labels, line!.startRun], ["issue_created", REPO, 8, filed.url, ask.title, "UASKER1", "1700000000.000100", ["status:triage"], false]);
+  assert.deepEqual([line!.event, line!.repo, line!.issue, line!.url, line!.title, line!.channelId, line!.userId, line!.threadKey, line!.labels, line!.startRun], ["issue_created", REPO, 8, filed.url, ask.title, f.channel.ref.id, "UASKER1", "1700000000.000100", ["status:triage"], false]);
 });
 
 test("labels come from configuration only, and the model has no way to choose one", async (t) => {
@@ -197,14 +197,21 @@ test("without a store or without GitHub in the session, nothing is filed and not
   await assert.rejects(noGitHub.createIssue(ask), /cannot be filed in this session/);
 });
 
-test("in a direct message the issue says only that it came from one", async (t) => {
-  const { f } = setup(t);
-  const dm = createFactoryRunService({ channel: { ...f.channel, ref: { ...f.channel.ref, isDm: true } }, store: () => new Store(), github: () => f.github, threadKey: "1700000000.000100", currentUserId: () => "UASKER1" });
-  await dm.createIssue(ask);
-  const body = f.github.created[0]!.body;
-  assert.match(body, /from a direct message, requested by `UASKER1`/);
-  assert.ok(!body.includes("slack.com/archives"));
-});
+for (const isDm of [false, true]) {
+  for (const userId of ["UREQUESTER9", ""]) {
+    for (const threadKey of ["1700000000.000100", ""]) {
+      test(`filing from ${isDm ? "a DM" : "a channel"} with ${userId ? "a" : "no"} requester and ${threadKey ? "a" : "no"} thread keeps attribution private`, async (t) => {
+        const { f, store, audit } = setup(t);
+        const channel = { ...f.channel, ref: { ...f.channel.ref, id: isDm ? "DPRIVATE9" : "CPRIVATE9", isDm } };
+        const service = createFactoryRunService({ channel, store: () => store, github: () => f.github, threadKey, currentUserId: () => userId });
+        const filed = await service.createIssue(ask);
+        assert.equal(f.github.created[0]!.body, `${ask.body}${provenanceFooter()}`, "neither visible text nor hidden comments disclose source details");
+        const [line] = audit();
+        assert.deepEqual([line!.event, line!.issue, line!.channelId, line!.userId, line!.threadKey], ["issue_created", filed.issue, channel.ref.id, userId, threadKey], "available source attribution stays in the private local audit");
+      });
+    }
+  }
+}
 
 // ── A label that is not there ────────────────────────────────────────────────────────────────────────────
 

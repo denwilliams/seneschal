@@ -39,14 +39,8 @@ test("a body is bounded, has its line endings made plain, and is nothing when no
   assert.ok(sanitizeIssueBody("y".repeat(20_000))!.length <= ISSUE_LIMITS.bodyChars);
 });
 
-test("the footer says it was filed by the harness and from where: a thread link, the requester, or only that it was a direct message", () => {
-  const channel = provenanceFooter({ channelId: "C123", threadTs: "1700000000.000100", userId: "UREQ9", isDm: false });
-  assert.match(channel, /\n---\n_Filed by the harness's software factory agent from Slack channel `C123` \(\[thread\]\(https:\/\/slack\.com\/archives\/C123\/p1700000000000100\)\), requested by `UREQ9`\./);
-  assert.match(channel, /has not been reviewed by a person\._\n<!-- harness:factory role=filing stage=issue -->$/, "the visible provenance first, then the machine marker");
-  const direct = provenanceFooter({ channelId: "D123", threadTs: "1700000000.000100", userId: "UREQ9", isDm: true });
-  assert.ok(direct.includes("from a direct message") && !direct.includes("D123") && !direct.includes("slack.com"), direct);
-  assert.ok(!provenanceFooter({ channelId: "C1", threadTs: "not a ts", userId: "bad id", isDm: false }).includes("thread"), "only a message timestamp makes a link");
-  assert.ok(!provenanceFooter({ channelId: "C1", userId: "bad id", isDm: false }).includes("requested by"), "only a Slack user id is named");
+test("the public footer discloses agent authorship and lack of human review without source attribution", () => {
+  assert.equal(provenanceFooter(), "\n\n---\n_Filed by the harness's software factory agent. It was written from a request and has not been reviewed by a person._\n<!-- harness:factory role=filing stage=issue -->");
 });
 
 test("two titles are the same request when they differ only in case, spacing and punctuation", () => {

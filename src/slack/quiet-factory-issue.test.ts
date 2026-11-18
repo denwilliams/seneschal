@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
@@ -6,6 +7,8 @@ import { ChannelRuntimes } from "../agent/channel-runtime.ts";
 import type { ScheduledTask } from "../agent/schedules.ts";
 import { HarnessConfigSchema } from "../config/schema.ts";
 import { forgetFiled } from "../factory/workflow/issue-ledger.ts";
+import { provenanceFooter } from "../factory/workflow/issue-text.ts";
+import { factoryAuditFile } from "../factory/workflow/service.ts";
 import { fixture, REPO } from "../factory/workflow/test-support.ts";
 import type { ResolvedChannel } from "../workspace/resolve.ts";
 import { HarnessApp } from "./app.ts";
@@ -66,7 +69,10 @@ for (const heartbeat of [false, true]) {
     const filed = e.f.github.created[0]!;
     assert.equal(filed.repo, REPO);
     assert.deepEqual(filed.labels, ["status:triage"]);
-    assert.match(filed.body, /requested by `USCHEDULER`/);
+    assert.equal(filed.body, `Include the column names in the first row.${provenanceFooter()}`);
+    const [audit] = readFileSync(factoryAuditFile(e.f.channel), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual([audit.event, audit.channelId, audit.userId], ["issue_created", e.f.channel.ref.id, "USCHEDULER"], "the scheduled requester is recorded only in the private audit");
+    assert.match(audit.threadKey, /^scheduled-file-issue-/);
     assert.deepEqual(await e.runtimes.peek(e.f.channel.ref.id)!.store.listFactoryRuns(10), [], "filing alone does not start a run");
   });
 }
