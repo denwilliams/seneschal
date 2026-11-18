@@ -364,7 +364,7 @@ export function createFactoryRunService(ctx: FactoryRunServiceContext): FactoryR
         if (recent.length >= settings.maxPerHour) {
           return refuse(`${recent.length} issues have been filed from this channel in the last hour (${settings.maxPerHour} at most). Wait, or ask a person to file this one.`, { repo, limit: settings.maxPerHour });
         }
-        const body = `${text}${provenanceFooter({ channelId: channel.ref.id, ...(ctx.threadKey ? { threadTs: ctx.threadKey } : {}), ...(ctx.currentUserId() ? { userId: ctx.currentUserId() } : {}), isDm: channel.ref.isDm })}`;
+        const body = `${text}${provenanceFooter()}`;
         let created;
         try {
           try {

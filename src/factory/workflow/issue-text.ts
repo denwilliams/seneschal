@@ -52,24 +52,12 @@ export function sanitizeIssueBody(raw: string): string | undefined {
   }).join("\n");
 }
 
-export interface Provenance {
-  channelId: string;
-  /** The Slack thread the request came from, when it is a message timestamp. */
-  threadTs?: string;
-  userId?: string;
-  isDm: boolean;
-}
-
 /** The words every footer starts with: intake looks for them (and for a recorded filing) to tell the harness's own issue from anyone's. */
 export const PROVENANCE_MARKER = "Filed by the harness's software factory agent";
 
-/** What the issue says about where it came from, so a person reading it knows it was filed by the harness and from what. */
-export function provenanceFooter(from: Provenance): string {
-  const where = from.isDm
-    ? "a direct message"
-    : `Slack channel \`${from.channelId}\`${from.threadTs && /^\d+\.\d+$/.test(from.threadTs) ? ` ([thread](https://slack.com/archives/${from.channelId}/p${from.threadTs.replace(".", "")}))` : ""}`;
-  const by = from.userId && /^[UW][A-Z0-9]{2,}$/.test(from.userId) ? `, requested by \`${from.userId}\`` : "";
-  return `\n\n---\n_${PROVENANCE_MARKER} from ${where}${by}. It was written from that request and has not been reviewed by a person._\n${footerMarker({ role: "filing", stage: "issue" })}`;
+/** Public disclosure only. Source identifiers belong in the private audit/store, never in this text or its hidden marker. */
+export function provenanceFooter(): string {
+  return `\n\n---\n_${PROVENANCE_MARKER}. It was written from a request and has not been reviewed by a person._\n${footerMarker({ role: "filing", stage: "issue" })}`;
 }
 
 /** Titles compare equal when they differ only in case, spacing and punctuation: the same request asked twice. */

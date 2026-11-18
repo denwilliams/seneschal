@@ -12,6 +12,7 @@ import { buildThreadToolSet, createThreadSession } from "./session.ts";
 import { headlessParent } from "./subagent-task.ts";
 import { ChannelTimelineLog } from "./timeline.ts";
 import { forgetFiled } from "../factory/workflow/issue-ledger.ts";
+import { provenanceFooter, sanitizeIssueBody } from "../factory/workflow/issue-text.ts";
 import { FactoryRunError, type FactoryRunService } from "../factory/workflow/service.ts";
 import { fixture, REPO, reply, until, type Fixture, type FixtureOptions } from "../factory/workflow/test-support.ts";
 import { buildDelegationPrompt, reportDelegatedRun, type DelegationCompletionRoute } from "../slack/app.ts";
@@ -93,7 +94,7 @@ async function lead(t: TestContext, options: Parameters<typeof fixture>[1], sess
 
 const ON: FixtureOptions = { issues: { create: true }, merge: { approvers: ["UAPPROVER"], autoMergeMaxRisk: 0 } };
 
-test("a request with no issue: the agent files it with its tool, the run starts on it, and what reached GitHub is sanitised and says where it came from", async (t) => {
+test("a request with no issue: the agent files it with its tool, the run starts on it, and what reached GitHub is sanitised and discloses agent authorship without source details", async (t) => {
   const e = await lead(t, ON);
   await e.say("customers keep asking for csv headers, please file and build that", "UASK01");
   assert.match(e.script.toolResults[0]!, /Filed acme\/app#8 \(Export to CSV is missing the header row\): https:\/\/github\.com\/acme\/app\/issues\/8\. A workflow run fr_[0-9a-f]{10} has started on it\./);
@@ -104,11 +105,12 @@ test("a request with no issue: the agent files it with its tool, the run starts 
   assert.match(filed.body, /Please `@channel` look, this fixes `#3`\./, "it cannot notify everyone or close another issue");
   assert.match(filed.body, /&lt;img src=x onerror=alert\(1\)>/);
   assert.match(filed.body, /Done when: the first row has the column names\./);
-  assert.match(filed.body, /_Filed by the harness's software factory agent from Slack channel `C1` \(\[thread\]\(https:\/\/slack\.com\/archives\/C1\/p1700000000000100\)\), requested by `UASK01`\./);
+  assert.equal(filed.body, `${sanitizeIssueBody(HOSTILE_BODY)}${provenanceFooter()}`);
 
   const waiting = await e.run(["waiting"], "merge");
   assert.deepEqual([waiting.repo, waiting.issue, waiting.by], [REPO, 8, { source: "agent", threadKey: "1700000000.000100", userId: "UASK01" }], "the run is on the issue that was just filed");
   assert.deepEqual(e.audit().map((line) => line.event).slice(0, 2), ["issue_created", "start"]);
+  assert.deepEqual([e.audit()[0]!.channelId, e.audit()[0]!.userId, e.audit()[0]!.threadKey], [e.f.channel.ref.id, "UASK01", "1700000000.000100"], "source attribution stays local");
 });
 
 test("filing without asking for a build files only: a run starts later, on the same issue, when someone asks", async (t) => {
@@ -161,7 +163,8 @@ test("delegated from another channel: the factory agent files and builds, the ru
   const waiting = await e.run(["waiting"], "merge");
   assert.deepEqual(waiting.by, { source: "agent", threadKey: "1700000100.000200", userId: "UREQ1" });
   assert.equal(waiting.issue, 8);
-  assert.match(e.f.github.created[0]!.body, /requested by `UREQ1`/);
+  assert.equal(e.f.github.created[0]!.body, `${sanitizeIssueBody(HOSTILE_BODY)}${provenanceFooter()}`);
+  assert.deepEqual([e.audit()[0]!.userId, e.audit()[0]!.threadKey], ["UREQ1", "1700000100.000200"]);
 
   // What the target agent said last is what the harness posts back to the thread that asked.
   const reported: DelegationCompletionRoute[] = [];
