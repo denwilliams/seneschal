@@ -173,6 +173,7 @@ export function ConfigAdmin({ active }: { active: boolean }) {
             <Field label="Default model" value={form.defaults.model} fallback="deepseek-v4-pro" onChange={(v) => change(["defaults", "model"], v)} />
             <Field label="Default thinking level" value={form.defaults.thinkingLevel} fallback="medium" choices={thinking} onChange={(v) => change(["defaults", "thinkingLevel"], v)} />
           </div>
+          <Field label="Default preferences" value={form.defaults.preferences} multiline onChange={(v) => change(["defaults", "preferences"], v)} />
           <h2 className="font-semibold">Existing channels</h2>
           <label className="block space-y-2 text-sm">Channel<select aria-label="Channel" className={inputClass} value={channel} onChange={(e) => setChannel(e.target.value)}>{form.channels.map((c) => <option key={c.key}>{c.key}</option>)}</select></label>
           {selected ? <div className="grid gap-3 sm:grid-cols-2">

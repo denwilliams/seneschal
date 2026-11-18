@@ -375,9 +375,11 @@
       {
         "id": "admin",
         "title": "Configuration & secret administration",
-        "description": "Edit configuration with validation, backups and reload warnings. Secret administration is write-only with supervised restart; optional scoped configurator roles apply separate runtime-enforced edit policies.",
+        "description": "Edit configuration with validation, backups and reload warnings. Basic settings includes multiline global default preferences and per-channel overrides; Raw YAML shares the same draft. Secret administration is write-only with supervised restart; optional scoped configurator roles apply separate runtime-enforced edit policies.",
         "sources": [
           "src/console2/admin.ts",
+          "src/config/operator.ts",
+          "web/console2/src/components/ConfigAdmin.tsx",
           "src/console2/secrets.ts",
           "src/agent/configurator-tools.ts",
           "docs/secret-admin.md"

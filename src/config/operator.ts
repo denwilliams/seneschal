@@ -138,7 +138,7 @@ export function patchOperatorConfig(text: string, edits: OperatorEdit[]): string
       next = patchConnectorYaml(patched, p, edit.yaml);
     } else {
       const scalar = edit.remove || typeof edit.value === "string";
-      const allowed = scalar && (p.length === 2 && p[0] === "defaults" && ["model", "thinkingLevel"].includes(p[1]!)
+      const allowed = scalar && (p.length === 2 && p[0] === "defaults" && ["model", "thinkingLevel", "preferences"].includes(p[1]!)
         || p.length === 3 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && fields.includes(p[2]!))
         || entry && !!connector && edit.remove
         || p[0] === "connectors" && !!connector && (
