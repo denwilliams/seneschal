@@ -20,7 +20,8 @@ export function RecentConversationSettings({ label, data, inherited, builtins, c
         const name = label + " " + field;
         const id = "recent-" + label.toLowerCase() + "-" + key;
         const value = data.values[key];
-        const fallback = inherited && !inherited.basic ? "Unsupported global mapping — see Raw YAML" : inherited?.values[key] !== undefined ? inherited.values[key] : builtins[key];
+        const fallback = inherited?.basic && inherited.values[key] !== undefined ? inherited.values[key] : builtins[key];
+        const fallbackText = inherited && !inherited.basic ? "Unsupported global mapping — see Raw YAML" : display(fallback);
         const source = inherited && (inherited.values[key] !== undefined || !inherited.basic) ? "global default" : "built-in default";
         const unsupported = data.unsupported.includes(key);
         const integerFallback = (typeof fallback === "number" || typeof fallback === "string" && /^\d+$/.test(fallback))
@@ -36,10 +37,10 @@ export function RecentConversationSettings({ label, data, inherited, builtins, c
           {type === "boolean" && !unsupported ? <select id={id} className={inputClass} disabled={value === undefined} value={value === undefined ? "" : String(value)} onChange={(event) => change(key, event.target.value === "true")}>
             {value === undefined && <option value="">Inherited</option>}<option value="true">Enabled</option><option value="false">Disabled</option>
           </select> : <input id={id} className={inputClass} inputMode={type === "integer" ? "numeric" : undefined}
-            disabled={value === undefined || unsupported} value={value === undefined ? "" : display(value)} placeholder={display(fallback)}
+            disabled={value === undefined || unsupported} value={value === undefined ? "" : display(value)} placeholder={fallbackText}
             onChange={(event) => change(key, event.target.value)} />}
           <p className="text-xs text-muted-foreground">{help}</p>
-          <p className="break-words text-xs text-muted-foreground">{value === undefined ? "Unset / inherited" : "Explicit override"}. Inherited {source}: {display(fallback)}</p>
+          <p className="break-words text-xs text-muted-foreground">{value === undefined ? "Unset / inherited" : "Explicit override"}. Inherited {source}: {fallbackText}</p>
           {unsupported && <p className="break-words text-xs text-amber-700 dark:text-amber-300">Unsupported form value retained unchanged. Edit it in Raw YAML or uncheck this override to inherit.</p>}
         </div>;
       })}</div>}

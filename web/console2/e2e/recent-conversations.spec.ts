@@ -103,6 +103,38 @@ test("per-channel partial overrides preserve explicit false and remove only one 
   await expect(field(page, "Channel summary debounce")).toHaveValue("45");
 });
 
+for (const mapping of ["'${SUMMARY_MAPPING}'", "[unsupported, mapping]"]) {
+  test(`unsupported global mapping ${mapping} seeds built-ins, never warning text, into channel overrides`, async ({ page }) => {
+    const initial = ADMIN_CONFIG.replace("  preferences: Be concise.\n", `  preferences: Be concise.\n  recentConversations: ${mapping}\n`);
+    await field(page, "Raw configuration YAML").fill(initial);
+    await basic(page);
+    const channel = page.getByRole("region", { name: "Channel recent conversations", exact: true });
+    await expect(channel).toContainText("Inherited global default: Unsupported global mapping — see Raw YAML");
+    await expect(field(page, "Channel summary model")).toHaveAttribute("placeholder", "Unsupported global mapping — see Raw YAML");
+    for (const [name, value] of [["summaries enabled", "true"], ["summary debounce", "60"], ["summary thread limit", "10"], ["summary model", "deepseek-flash"], ["summary transcript limit", "8000"]] as const) {
+      await override(page, "Channel " + name).check();
+      await expect(field(page, "Channel " + name)).toHaveValue(value);
+    }
+    await raw(page);
+    const draft = await rawText(page);
+    const expectedChannel = { enabled: true, debounceSeconds: 60, maxThreads: 10, model: "deepseek-flash", maxTranscriptChars: 8000 };
+    expect(parse(draft).defaults.recentConversations).toEqual(parse(initial).defaults.recentConversations);
+    expect(parse(draft).channels.general.recentConversations).toEqual(expectedChannel);
+    expect(draft).not.toContain("Unsupported global mapping");
+    // Repair the global representation; the already-added channel model must stay a real model value.
+    const repaired = draft.replace(`recentConversations: ${mapping}`, "recentConversations: {model: example/repaired-global}");
+    expect(repaired).not.toBe(draft);
+    await field(page, "Raw configuration YAML").fill(repaired);
+    await basic(page);
+    await expect(field(page, "Channel summary model")).toHaveValue("deepseek-flash");
+    await save(page);
+    const persisted = await page.request.get("api/v1/config");
+    expect(parse((await persisted.json()).text).channels.general.recentConversations).toEqual(expectedChannel);
+    await reopen(page, repaired);
+    await expect(field(page, "Channel summary model")).toHaveValue("deepseek-flash");
+  });
+}
+
 test("invalid integer drafts are rejected without coercion, persistence or draft loss", async ({ page }) => {
   await basic(page);
   await override(page, "Default summary debounce").check();
