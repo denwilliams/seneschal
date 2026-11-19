@@ -274,6 +274,15 @@ The software factory's workflow engine (see `docs/FACTORY_WORKFLOW_DESIGN.md` an
 
 The reviewer scores each change `RISK: 1` to `5` (a missing or out-of-range score counts as 5). The engine only ever raises that score: by `sensitivePaths` and `largeDiffLines`. A change merges by itself only when all of these hold: the reviewer approved, the final risk is at or under `autoMergeMaxRisk`, the pull request is still at the commit that was reviewed, and GitHub reports at least one required check, all passing. A repository with no required checks always waits for an approver. Everything else waits for one of the `approvers`, whose approval is bound to the reviewed commit. The merge itself is `gh pr merge --match-head-commit`, so GitHub's branch protection stays the final authority. These rules decide what reaches a default branch, so the admin channel's config tools refuse to edit `factory.merge` and `factory.repositoryRules`.
 
+**Repositories already deploying through Actions** can select a check-only deploy
+stage with `factory.deploy: { mode: github-actions, workflow: deploy.yml }`.
+It observes only the configured workflow for the full merged SHA, polling every
+15 seconds for up to 30 minutes by default. Only completed/success counts; other
+outcomes, missing runs and API failures use the existing failed-stage controls.
+No workflow is dispatched/rerun and no deploy commands run. The existing optional,
+approval-gated Cloudflare deployer remains the default. See
+[selection, read-only access, polling limits and rollback](docs/factory-actions-deploy.md).
+
 ##### Autonomy: how much of its own judgement a factory has
 
 `factory.autonomy` is one word that sets a coherent risk appetite, so most projects need nothing else. Some repositories need every decision scrutinised; most are happy for the agent to do its best.
@@ -286,7 +295,7 @@ The reviewer scores each change `RISK: 1` to `5` (a missing or out-of-range scor
 
 Explicit settings beat the level (`merge.autoMergeMaxRisk`, `intake.assumeAfterHours`, `reviewRounds`, `autoRetries`), and a repository can have its own level or its own `autoMergeMaxRisk` in `repositoryRules`. The effective values are logged when the config loads (with a warning when an explicit setting beats a stricter repository level), shown on every run's status post and in `check_factory_run` / `check_factory_intake`, and carried in the console's run payload. The admin agent's config tools cannot change a level.
 
-**No level loosens a gate.** A pull request still merges only if the reviewer approved it, every required check on the branch is green and the pull request has not changed since review (`--match-head-commit`); sensitive paths and big diffs still raise the risk; a branch with no required check still needs a person to merge; only trusted authors start runs; a comment never approves or merges; a deploy still waits for an approver. Those have no setting, so no level can move them.
+**No level loosens a gate.** A pull request still merges only if the reviewer approved it, every required check on the branch is green and the pull request has not changed since review (`--match-head-commit`); sensitive paths and big diffs still raise the risk; a branch with no required check still needs a person to merge; only trusted authors start runs; a comment never approves or merges; an active deployer still waits for an approver (check-only Actions observation does not deploy). Those have no setting, so no level can move them.
 
 #### Workflow runs
 
@@ -294,7 +303,7 @@ Factories can also use **Jira Cloud through ACLI** as their work tracker, with G
 retained for code and PRs. See [Jira configuration, authentication and operational
 limits](docs/JIRA_WORK_TRACKING.md). Existing GitHub factories need no changes.
 
-A software-factory channel whose team has the roles the workflow needs (`github_triage`, `coder`, `reviewer`; `cloudflare_deployer` is optional) works issues as *workflow runs*: one durable task per issue, carried by the harness through triage, the coder, review, a merge gate and deploy, each stage handled by its own subagent. A run survives a restart, and nothing about where it is lives only in the conversation.
+A software-factory channel whose team has the roles the workflow needs (`github_triage`, `coder`, `reviewer`; `cloudflare_deployer` is optional) works issues as *workflow runs*: one durable task per issue, carried by the harness through triage, the coder, review, a merge gate and deploy, agent stages handled by their own subagents (Actions deploy monitoring is native and read-only). A run survives a restart, and nothing about where it is lives only in the conversation.
 
 The channel agent's tools (offered only to such a channel, never to a subagent):
 

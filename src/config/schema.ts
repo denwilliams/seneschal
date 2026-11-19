@@ -878,6 +878,18 @@ export const InteractiveComponentsOverrideSchema = z
 /** A reviewed, GitHub-backed software factory attached to one Slack channel. */
 export const FactoryLifecycleSkillSchema = z.enum(["planning", "implementation", "review", "commit-pr"]);
 export type FactoryLifecycleSkill = z.infer<typeof FactoryLifecycleSkillSchema>;
+/** Check an existing Actions deployment, or retain the approval-gated agent deployer. */
+export const FactoryDeploySchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("agent") }).strict(),
+  z.object({
+    mode: z.literal("github-actions"),
+    workflow: z.union([z.number().int().positive().safe(), z.string().regex(/^(?:\.github\/workflows\/)?[A-Za-z0-9_.-]+\.ya?ml$/, "must be a workflow ID or YAML filename/path")]),
+    pollIntervalSeconds: z.number().int().min(1).max(300).default(15),
+    timeoutSeconds: z.number().int().min(1).max(86400).default(1800),
+  }).strict(),
+]);
+export type FactoryDeployConfig = z.infer<typeof FactoryDeploySchema>;
+
 /**
  * When a pull request the factory's reviewer approved may merge by itself, and who decides when it may not. All optional: a
  * repository's own rules are laid over the factory's, and what neither sets falls back to the safe default (nothing merges
@@ -907,7 +919,7 @@ export const FactoryAutonomySchema = z.enum(["cautious", "balanced", "autonomous
 export type FactoryAutonomy = z.infer<typeof FactoryAutonomySchema>;
 
 /** A repository's own rules: the merge rules, and its own autonomy level. */
-export const FactoryRepositoryRulesSchema = FactoryMergeRulesSchema.extend({ autonomy: FactoryAutonomySchema.optional() }).strict();
+export const FactoryRepositoryRulesSchema = FactoryMergeRulesSchema.extend({ autonomy: FactoryAutonomySchema.optional(), deploy: FactoryDeploySchema.optional() }).strict();
 
 /**
  * Whether the factory's agent may file a GitHub issue in one of its repositories for a request that has none yet (a Slack
@@ -987,6 +999,8 @@ export const FactorySchema = z.object({
   }).strict().optional(),
   /** Reviewed lifecycle skills shipped with the harness; channel-local copies may shadow them. */
   lifecycleSkills: z.array(FactoryLifecycleSkillSchema).default(["planning", "implementation", "review", "commit-pr"]),
+  /** Deploy-stage selection. Absent: the existing optional agent deployer. */
+  deploy: FactoryDeploySchema.optional(),
   /** The merge rules for every repository in this factory. */
   merge: FactoryMergeRulesSchema.optional(),
   /** Rules for one repository, laid over `merge`. Keys must be in `repositories`. */

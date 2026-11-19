@@ -22,6 +22,8 @@ export interface FactoryGitHub {
   commentIssue(input: { repo: string; number: number; body: string }): Promise<void>;
   readPr(repo: string, number: number): Promise<PrFacts>;
   readChecks(repo: string, number: number): Promise<ChecksFacts>;
+  /** GET-only Actions observation; optional for older/test backends. */
+  readDeploymentRun?: import("./github-actions.ts").ReadDeploymentRun;
   /**
    * Merge the pull request, only if its head is still `expectedHead` (GitHub itself refuses otherwise). Idempotent: a pull
    * request that is already merged is not an error, it is the answer.

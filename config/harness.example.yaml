@@ -672,6 +672,16 @@ channels:
       # Runs live at once, counting ones waiting for a person. A few stuck runs fill a small limit and
       # hold up new issues; the cost is model time, so raise it with care.
       maxLiveRuns: 5
+      # Optional: observe an existing Actions deployment instead of running cloudflare_deployer.
+      # One deploy stage only; no dispatch/rerun/deploy commands. Existing merge gates stay in place.
+      # Omit (or mode: agent) to retain the optional approval-gated deployer.
+      # The channel's GitHub credential needs Actions: read. See docs/factory-actions-deploy.md.
+      # deploy:
+      #   mode: github-actions
+      #   workflow: .github/workflows/deploy.yml # filename/path or numeric ID, not display name
+      #   pollIntervalSeconds: 15 # 1–300
+      #   timeoutSeconds: 1800 # 1–86400, discovery and execution share this deadline
+      # Per-repository override: repositoryRules: { acme/app: { deploy: { mode: agent } } }
       # Optional, operator-only: explicit Git author AND committer for new coder commits.
       # Both fields required; use an identity you control, never guess a noreply address.
       # Unset: existing Git behavior. Applies to future coder/rework sessions, not history.

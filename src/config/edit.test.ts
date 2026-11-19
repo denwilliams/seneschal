@@ -208,6 +208,16 @@ test("a factory's repositories and skills can be edited from here, but who may m
   assert.ok(!s.text().includes("autoMergeMaxRisk"), "nothing of the refused edits reached the file");
 });
 
+test("factory deploy selection is operator-only, including whole-block replacement", async () => {
+  const s = setup();
+  const deploy = { mode: "github-actions", workflow: "deploy.yml" };
+  for (const change of [
+    { path: ["channels", "engineering", "factory", "deploy"], value: deploy },
+    { path: ["channels", "engineering", "factory"], value: { name: "A", repositories: ["a/b"], deploy } },
+  ]) await assert.rejects(s.edit([change]), refused(/selects how deployment is performed or observed/));
+  assert.equal(s.text(), CONFIG);
+});
+
 test("one refused change in a batch stops the whole batch", async () => {
   const s = setup();
   await assert.rejects(s.edit([
