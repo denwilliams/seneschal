@@ -318,8 +318,8 @@ test("a role in a factory channel runs with the footer in its environment, a wor
   assert.equal(plain.HARNESS_AGENT_FOOTER_MARKER, undefined);
 });
 
-test("the runner selects the role token after layering run env and withholds other role overrides", async (t) => {
-  const f = await fixture(t, { factory: { name: "F", repositories: ["acme/app"] } });
+test("the runner selects role token and commit identity after layering run env on every attempt", async (t) => {
+  const f = await fixture(t, { factory: { name: "F", repositories: ["acme/app"], commitAuthor: { name: "Configured", email: "configured@example.com" } } });
   f.channel.env = Object.freeze({
     GH_TOKEN: "fixture-default", GH_TOKEN_CODER: "fixture-coder", GH_TOKEN_REVIEWER: "fixture-reviewer",
   });
@@ -337,11 +337,16 @@ test("the runner selects the role token after layering run env and withholds oth
   });
   await assert.rejects(runner.run({
     agent: "coder", task: "x", userId: "U1",
-    env: { ...footerEnv({ role: "coder", stage: "implement", runId: "run42" }), GH_TOKEN_REVIEWER: "fixture-run-reviewer" },
+    env: { ...footerEnv({ role: "coder", stage: "implement", runId: "run42" }), GH_TOKEN_REVIEWER: "fixture-run-reviewer", GIT_AUTHOR_EMAIL: "run@example.com" },
   }), /stop after environment capture/);
   assert.ok(captured?.GH_TOKEN === "fixture-coder", "the coder override reaches the tool builder");
   assert.ok(!Object.keys(captured!).some((key) => key.startsWith("GH_TOKEN_")), "run env cannot reintroduce role overrides");
   assert.equal(captured!.HARNESS_AGENT_FOOTER, agentFooter({ role: "coder", stage: "implement", runId: "run42" }));
+  assert.equal(captured!.GIT_AUTHOR_EMAIL, "configured@example.com");
+  assert.equal(captured!.GIT_COMMITTER_EMAIL, "configured@example.com");
+  assert.equal(captured!.GIT_AUTHOR_NAME, "Configured");
+  await assert.rejects(runner.run({ agent: "coder", task: "Rework", userId: "U1", runKey: "retry" }), /stop after environment capture/);
+  assert.equal(captured!.GIT_AUTHOR_EMAIL, "configured@example.com", "a subsequent attempt receives the identity again");
   assert.ok(JSON.stringify(f.channel.env) === parentEnv, "the orchestration identity is unchanged");
 });
 

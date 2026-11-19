@@ -110,6 +110,7 @@ export const CHANNEL: Record<string, "allow" | { deny: string }> = {
  */
 export const FACTORY: Record<string, "allow" | { deny: string }> = {
   name: "allow", repositories: "allow", lifecycleSkills: "allow", announce: "allow",
+  commitAuthor: { deny: "sets attribution for new factory commits: an operator's decision, not the admin agent's" },
   merge: { deny: "decides who can approve a merge and when a pull request merges without a person: an operator's decision, not the admin agent's" },
   repositoryRules: { deny: "decides who can approve a merge and when a pull request merges without a person: an operator's decision, not the admin agent's" },
   issues: { deny: "lets the channel write issues to GitHub from whatever it is told: an operator's decision, not the admin agent's" },

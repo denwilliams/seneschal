@@ -156,6 +156,13 @@ export function narrowChannelForAgent(channel: ResolvedChannel, agent: ResolvedS
   const token = channel.env[tokenKey] || channel.env.GH_TOKEN;
   const env = Object.fromEntries(Object.entries(channel.env).filter(([key]) => !key.startsWith("GH_TOKEN_")));
   if (token !== undefined) env.GH_TOKEN = token;
+  // Execution-scoped, after channel/run env: no global or repository config writes.
+  // Git's identity variables beat inherited env, user.* config and EMAIL defaults.
+  const author = channel.factory?.commitAuthor;
+  if (agent.name === "coder" && author) {
+    env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = author.name;
+    env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = author.email;
+  }
   return {
     ...channel,
     env,

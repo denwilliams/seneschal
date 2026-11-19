@@ -267,10 +267,12 @@
       {
         "id": "pipeline",
         "title": "Triage → code → review",
-        "description": "Configured agent teams carry GitHub issues through implementation and independent review. Workflow stages, retries and review rounds survive restarts and stay linked to the issue and pull request.",
+        "description": "Configured agent teams carry GitHub issues through implementation and independent review. Workflow stages, retries and review rounds survive restarts and stay linked to the issue and pull request. Operators can opt into an explicit Git author name and email for future coder commits, including rework; existing history is unchanged.",
         "sources": [
           "src/factory/workflow",
-          "docs/FACTORY_WORKFLOW_DESIGN.md"
+          "docs/FACTORY_WORKFLOW_DESIGN.md",
+          "src/workspace/subagents.ts",
+          "docs/factory-commit-author.md"
         ]
       },
       {
