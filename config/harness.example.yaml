@@ -672,6 +672,13 @@ channels:
       # Runs live at once, counting ones waiting for a person. A few stuck runs fill a small limit and
       # hold up new issues; the cost is model time, so raise it with care.
       maxLiveRuns: 5
+      # Optional, operator-only: explicit Git author AND committer for new coder commits.
+      # Both fields required; use an identity you control, never guess a noreply address.
+      # Unset: existing Git behavior. Applies to future coder/rework sessions, not history.
+      # Independent of GH_TOKEN / GitHub App authentication. See docs/factory-commit-author.md.
+      # commitAuthor:
+      #   name: Factory Automation
+      #   email: automation@example.com
       # Watch the repositories and start a run for every new issue from a trusted author (owner,
       # member, collaborator, or an issue labelled `factory:go`). Without this nothing starts until
       # someone asks the agent to.

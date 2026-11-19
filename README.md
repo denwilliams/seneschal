@@ -1556,6 +1556,14 @@ configuration. Use separate GitHub accounts with suitably scoped tokens to separ
 PR authorship from review, and keep token values out of prompts, logs and repository files.
 Remove an override to return that role to the default identity.
 
+**Explicit factory Git commit identity.** Operators can set a channel's
+`factory.commitAuthor: { name: "Factory Automation", email: "automation@example.com" }`.
+Both fields are required when enabled. New `coder` commits use that author and
+committer on host and sandbox execution, including retries/rework; unset retains
+existing Git behavior without generating a fallback identity. This is separate
+from GitHub authentication and changes no historical attribution or merge gates.
+See [configuration, validation and limits](docs/factory-commit-author.md).
+
 **What you see in Slack.** While a subagent works, the thread shows a post when work is handed over (who, and what the job is), the subagent's own short updates as it finds things, and a closing line (how it ended, how long, how many steps, and which role it suggests next). The channel agent's answer is always the last message. For a three-role pipeline that looks like:
 
 ```

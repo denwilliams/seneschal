@@ -46,6 +46,9 @@ try {
       await page.goto(base + 'features.html#admin');
       await page.locator('#admin').scrollIntoViewIfNeeded();
       await page.screenshot({ path: resolve(folder, `admin-${name}.png`) });
+      await page.goto(base + 'features.html#factory');
+      await page.locator('#factory').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(folder, `factory-${name}.png`) });
       await page.goto(base);
       await page.screenshot({ path: resolve(folder, `overview-${name}.png`) });
       console.log(`Captured actual ${name} overview and feature directory screenshots.`);

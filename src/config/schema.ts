@@ -980,6 +980,11 @@ export const FactorySchema = z.object({
   name: z.string().trim().min(1).max(120),
   /** GitHub owner/repository names that this factory is allowed to describe. */
   repositories: z.array(z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must be an owner/repository GitHub name")).min(1).max(20),
+  /** Explicit identity for new coder commits; absent leaves Git's existing behavior unchanged. */
+  commitAuthor: z.object({
+    name: z.string().trim().min(1).max(200).regex(/^[^<>\x00-\x1f\x7f]+$/, "must not contain angle brackets or control characters"),
+    email: z.email().max(254),
+  }).strict().optional(),
   /** Reviewed lifecycle skills shipped with the harness; channel-local copies may shadow them. */
   lifecycleSkills: z.array(FactoryLifecycleSkillSchema).default(["planning", "implementation", "review", "commit-pr"]),
   /** The merge rules for every repository in this factory. */
