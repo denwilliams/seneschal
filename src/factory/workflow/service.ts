@@ -70,7 +70,10 @@ export class FactoryRunError extends Error {
 
 /** The workflow the channel runs: only the shipped one, for now. */
 export const channelWorkflow = (channel: Pick<ResolvedChannel, "factory">, repo: string): WorkflowDefinition =>
-  softwareFactoryWorkflow({ reviewRounds: effectiveAutonomy(channel.factory, repo).knobs.reviewRounds.value });
+  softwareFactoryWorkflow({
+    reviewRounds: effectiveAutonomy(channel.factory, repo).knobs.reviewRounds.value,
+    deploy: Object.entries(channel.factory?.repositoryRules ?? {}).find(([name]) => name.toLowerCase() === repo.toLowerCase())?.[1].deploy ?? channel.factory?.deploy,
+  });
 
 /** How many runs may be live in the channel at once. */
 export const liveLimit = (channel: Pick<ResolvedChannel, "factory">): number => channel.factory?.maxLiveRuns ?? MAX_LIVE_FACTORY_RUNS;
@@ -91,9 +94,10 @@ export function workflowProblem(channel: Pick<ResolvedChannel, "factory" | "agen
  * the change has been built, reviewed and merged. Better to say so before the run starts. Roles without that rule carry on without
  * a missing skill (the stage brief carries what the engine needs from them), and the harness warns about them when it loads the config.
  */
-export function approvalRoleSkillProblem(channel: ResolvedChannel): string | undefined {
+export function approvalRoleSkillProblem(channel: ResolvedChannel, repo?: string): string | undefined {
   if (!channel.agents.some((agent) => agent.requireApproval)) return undefined;
-  const gaps = roleSkillGaps(channel, availableSkillNames(channel)).filter((gap) => gap.requireApproval);
+  const used = repo ? new Set(channelWorkflow(channel, repo).stages.map(stage => stage.role)) : undefined;
+  const gaps = roleSkillGaps(channel, availableSkillNames(channel)).filter((gap) => gap.requireApproval && (!used || used.has(gap.agent)));
   return gaps.length > 0 ? `${roleSkillGapMessage(channel, gaps)} Until then it would stop at that role, after the change is merged.` : undefined;
 }
 
@@ -408,7 +412,7 @@ export function createFactoryRunService(ctx: FactoryRunServiceContext): FactoryR
     async startFromIntake(request) {
       const problem = workflowProblem(channel);
       if (problem) throw new FactoryRunError(`Workflow runs are not available here: ${problem}.`);
-      const skills = approvalRoleSkillProblem(channel);
+      const skills = approvalRoleSkillProblem(channel, request.repo);
       if (skills) throw new FactoryRunError(`Workflow runs are not available here: ${skills}`);
       const factory = channel.factory!;
       if (!factory.repositories.some((repo) => repo.toLowerCase() === request.repo.toLowerCase())) throw new FactoryRunError(`${request.repo} is not one of this factory's repositories.`);
@@ -483,10 +487,10 @@ export function createFactoryRunService(ctx: FactoryRunServiceContext): FactoryR
     async start(issueText, notes, options) {
       const problem = workflowProblem(channel);
       if (problem) throw new FactoryRunError(`Workflow runs are not available here: ${problem}.`);
-      const skills = approvalRoleSkillProblem(channel);
-      if (skills) throw new FactoryRunError(`Workflow runs are not available here: ${skills}`);
       const factory = channel.factory!;
       const { repo, issue } = await parseRef(issueText);
+      const skills = approvalRoleSkillProblem(channel, repo);
+      if (skills) throw new FactoryRunError(`Workflow runs are not available here: ${skills}`);
       const github = ctx.github();
       if (!github) throw new FactoryRunError("Workflow runs are not available in this session.");
       let facts;

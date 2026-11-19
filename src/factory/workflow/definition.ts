@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { FactoryDeploySchema, type FactoryDeployConfig } from "../../config/schema.ts";
 
 /**
  * A workflow as data: stages, and where each stage's verdict leads. The software factory's is `SOFTWARE_FACTORY_WORKFLOW`,
@@ -17,13 +18,15 @@ export const WORKFLOW_ENDS: readonly WorkflowEnd[] = ["complete", "reject", "fai
  */
 export const WAIT_FOR_INFO = "wait_for_info";
 
-/** `agent`: a dedicated sub-agent runs it. `gate`: the merge decision, made from the factory's rules or by a person. */
-export type StageKind = "agent" | "gate";
+/** `agent`: a sub-agent. `gate`: the merge decision. `actions`: native read-only deployment observation. */
+export type StageKind = "agent" | "gate" | "actions";
 
 export interface Stage {
   /** A lower-case identifier, unique in the workflow. */
   name: string;
   kind: StageKind;
+  /** Pinned read-only deploy monitor configuration; never inferred from issue text. */
+  actions?: Extract<FactoryDeployConfig, { mode: "github-actions" }>;
   /** The sub-agent for an agent stage. A gate has none. */
   role?: string;
   /** Where each verdict leads: another stage's name, or an end. A verdict with no arrow fails the stage. */
@@ -80,11 +83,18 @@ export const SOFTWARE_FACTORY_WORKFLOW: WorkflowDefinition = {
   ],
 };
 
-/** The shipped workflow with a channel's settings applied: today only how many review rounds run before a person is asked. */
-export function softwareFactoryWorkflow(options: { reviewRounds?: number } = {}): WorkflowDefinition {
+/** The shipped workflow with review rounds and the mutually exclusive deploy implementation applied. */
+export function softwareFactoryWorkflow(options: { reviewRounds?: number; deploy?: FactoryDeployConfig } = {}): WorkflowDefinition {
   const rounds = options.reviewRounds ?? DEFAULT_REVIEW_ROUNDS;
-  if (rounds === DEFAULT_REVIEW_ROUNDS) return SOFTWARE_FACTORY_WORKFLOW;
-  return { ...SOFTWARE_FACTORY_WORKFLOW, stages: SOFTWARE_FACTORY_WORKFLOW.stages.map((stage) => (stage.name === "review" ? { ...stage, maxEntries: rounds } : stage)) };
+  if (rounds === DEFAULT_REVIEW_ROUNDS && options.deploy?.mode !== "github-actions") return SOFTWARE_FACTORY_WORKFLOW;
+  return { ...SOFTWARE_FACTORY_WORKFLOW, version: options.deploy?.mode === "github-actions" ? 6 : SOFTWARE_FACTORY_WORKFLOW.version, stages: SOFTWARE_FACTORY_WORKFLOW.stages.map((stage) => {
+    if (stage.name === "review") return { ...stage, maxEntries: rounds };
+    if (stage.name === "deploy" && options.deploy?.mode === "github-actions") return {
+      name: "deploy", kind: "actions", actions: options.deploy, optional: true, replaySafe: true,
+      on: { done: "complete", skipped: "complete" },
+    };
+    return stage;
+  }) };
 }
 
 /**
@@ -120,6 +130,7 @@ export function validateWorkflow(definition: WorkflowDefinition): string[] {
     const where = `stage "${stage.name}"`;
     if (stage.kind === "agent" && !stage.role) problems.push(`${where}: an agent stage needs a role`);
     if (stage.kind === "gate" && stage.role) problems.push(`${where}: a gate has no role`);
+    if (stage.kind === "actions" && (stage.role || !FactoryDeploySchema.safeParse(stage.actions).success || stage.actions?.mode !== "github-actions")) problems.push(`${where}: an Actions stage needs valid monitor settings and no role`);
     if (Object.keys(stage.on).length === 0) problems.push(`${where}: it needs at least one arrow`);
     for (const [verdict, target] of Object.entries(stage.on)) {
       if (!NAME.test(verdict)) problems.push(`${where}: verdict "${verdict}" is not a lower-case identifier`);

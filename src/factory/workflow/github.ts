@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createDeploymentReader } from "./github-actions.ts";
 import { promisify } from "node:util";
 import type { FactoryGitHub } from "./deps.ts";
 import { requireFooter } from "./footer.ts";
@@ -152,6 +153,7 @@ export function createGitHub(run: GhRun, options: { pollMs?: number; sleep?: (ms
     return facts;
   };
   return {
+    readDeploymentRun: createDeploymentReader(run),
     source: createIssueSource(run),
     labels: createLabels(run),
 

@@ -37,10 +37,12 @@ import { bounded, buildBrief, endStatus, enterStage, failedStageProblem, findSta
  *    for the task to be torn down, leaving `started` in place for the next entry to find.
  */
 
+/** Persisted across restarts: the deadline and selected run/attempt never drift to unrelated evidence. */
+type ActionsCheckpoint = { deadline: number; nextPollAt: number; polls: number; workflowId?: number; runId?: number; attempt?: number; url?: string };
 export type FactoryTaskInput = { runId: string };
 export type FactoryTaskState =
   /** Work the stage `stage`: run its role, or decide its gate. `reask`: the next run asks for a report to be restated. */
-  | { phase: "stage"; stage: string; started: boolean; reask: boolean; trackerReady?: boolean; approvalReady?: "merge" | "deploy"; /** Set when a decision resumes the stage the checkpoint was already at, so that it is a change and the phase runs again. */ resumed?: number }
+  | { phase: "stage"; stage: string; started: boolean; reask: boolean; trackerReady?: boolean; approvalReady?: "merge" | "deploy"; monitor?: ActionsCheckpoint; /** Set when a decision resumes the stage the checkpoint was already at, so that it is a change and the phase runs again. */ resumed?: number }
   /** An interrupted stage waits for a person: retry, skip or abort. */
   | { phase: "decide"; stage: string; reask: boolean }
   /** A stage asked for information: the run waits for a trusted update on its issue (or for `needsInfoDays` to pass), then runs the stage again. */
@@ -612,6 +614,74 @@ export function makeFactoryTask(getDeps: () => FactoryDeps | undefined): Factory
     });
   }
 
+  /** A native, read-only deploy stage: no agent, deployment command or deploy consent is involved. */
+  async function actionsStep(runtime: Runtime, context: Context, run: FactoryRunData, deps: FactoryDeps, definition: WorkflowDefinition, stage: Stage, saved?: ActionsCheckpoint): Promise<void> {
+    const settings = stage.actions!;
+    if (!saved) {
+      return change(runtime, context, run.runId, (doc, now) => {
+        const record = findStage(doc, stage.name)!;
+        record.status = "in_progress";
+        record.attempts.push(attemptOf(stage, record.entries, "", now, false));
+        doc.status = "running"; doc.reason = "Waiting for the GitHub Actions deployment run";
+        return { status: "running", checkpoint: { phase: "stage", stage: stage.name, started: true, reask: false,
+          monitor: { deadline: now + settings.timeoutSeconds * 1000, nextPollAt: now, polls: 0 } } };
+      });
+    }
+    const fail = (message: string) => change(runtime, context, run.runId, (doc, now) => {
+      const attempt = lastAttempt(findStage(doc, stage.name))!;
+      attempt.summary = summaryOf(message); attempt.report = bounded(message, REPORT_CHARS); attempt.durationMs = now - attempt.startedAt;
+      return park(doc, stage.name, message, now);
+    });
+    const timeout = () => fail(saved.runId
+      ? `GitHub Actions deployment timed out waiting for run ${saved.runId}, attempt ${saved.attempt}: ${saved.url}`
+      : `No GitHub Actions deployment run appeared before the deadline for ${run.repo} at ${run.pr.mergeCommit}`);
+    if (runtime.now() >= saved.deadline) return timeout();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await awaitWithContext(new Promise<void>((resolve) => { timer = setTimeout(resolve, Math.max(0, Math.min(saved.nextPollAt, saved.deadline) - runtime.now())); }), context);
+    } finally { if (timer) clearTimeout(timer); }
+    if (runtime.now() >= saved.deadline) return timeout();
+    try {
+      if (!deps.github.readDeploymentRun) throw new Error("this GitHub backend does not support Actions monitoring");
+      if (!/^[a-f0-9]{40}$/i.test(run.pr.mergeCommit)) throw new Error("the full merged commit SHA is not recorded");
+      // Bound even a hung API read by the same overall deadline. The gh runner also has its own 30-second timeout.
+      let apiTimer: ReturnType<typeof setTimeout> | undefined;
+      const controller = new AbortController();
+      let result: Awaited<ReturnType<NonNullable<typeof deps.github.readDeploymentRun>>>;
+      try {
+        result = await awaitWithContext(Promise.race([
+          deps.github.readDeploymentRun({ repo: run.repo, workflow: settings.workflow, sha: run.pr.mergeCommit, workflowId: saved.workflowId, runId: saved.runId, signal: AbortSignal.any([runtime.signal, controller.signal]) }),
+          new Promise<never>((_, reject) => { apiTimer = setTimeout(() => { controller.abort(); reject(new Error("Actions API request exceeded the monitoring deadline")); }, Math.max(0, saved.deadline - runtime.now())); }),
+        ]), context);
+      } finally { if (apiTimer) clearTimeout(apiTimer); controller.abort(); }
+      if (runtime.now() >= saved.deadline) return timeout();
+      const observed = result.run;
+      if (observed && (observed.repo.toLowerCase() !== run.repo.toLowerCase() || observed.sha.toLowerCase() !== run.pr.mergeCommit.toLowerCase() || observed.workflowId !== result.workflowId || (saved.runId !== undefined && observed.id !== saved.runId))) throw new Error("Actions evidence does not match the pinned repository, workflow, commit or run");
+      if (saved.workflowId !== undefined && saved.workflowId !== result.workflowId) throw new Error("Actions workflow ID changed while monitoring");
+      if (saved.runId !== undefined && !observed) throw new Error("the pinned Actions run disappeared");
+      if (observed && saved.attempt !== undefined && observed.attempt !== saved.attempt) throw new Error(`Actions run attempt changed from ${saved.attempt} to ${observed.attempt}; retry monitoring explicitly`);
+      const message = observed
+        ? `GitHub Actions run ${observed.id}, attempt ${observed.attempt}: ${observed.status}${observed.conclusion ? ` / ${observed.conclusion}` : ""} — ${observed.url}`
+        : `Waiting for GitHub Actions workflow ${result.workflowId} at ${run.pr.mergeCommit}`;
+      if (observed?.status === "completed") {
+        if (observed.conclusion !== "success") return fail(message);
+        return settle(runtime, context, run.runId, definition, stage, "done", (doc, now) => {
+          Object.assign(lastAttempt(findStage(doc, stage.name))!, { status: "done", verdict: "done", summary: message, report: message, endedAt: now, durationMs: now - lastAttempt(findStage(doc, stage.name))!.startedAt });
+        });
+      }
+      return change(runtime, context, run.runId, (doc, now) => {
+        doc.reason = message;
+        Object.assign(lastAttempt(findStage(doc, stage.name))!, { summary: message, report: message });
+        return { status: "running", checkpoint: { phase: "stage", stage: stage.name, started: true, reask: false,
+          monitor: { ...saved, workflowId: result.workflowId, polls: saved.polls + 1, nextPollAt: now + settings.pollIntervalSeconds * 1000,
+            ...(observed ? { runId: observed.id, attempt: observed.attempt, url: observed.url } : {}) } } };
+      });
+    } catch (error) {
+      if (runtime.signal.aborted) await awaitWithContext(never<void>(), context);
+      return fail(`GitHub Actions monitoring API/access failure${saved.url ? ` — ${saved.url}` : ""}: ${String(error)}`);
+    }
+  }
+
   // ── The task ───────────────────────────────────────────────────────────────────────────────────────────────
 
   return defineTask<FactoryTaskInput, FactoryTaskState, FactoryTaskResult>({
@@ -709,6 +779,7 @@ export function makeFactoryTask(getDeps: () => FactoryDeps | undefined): Factory
           return;
         }
 
+        if (stage.kind === "actions") return actionsStep(runtime, context, run, deps, definition, stage, checkpoint.monitor);
         if (stage.kind === "gate") return gateStep(runtime, context, run, deps, definition, stage, checkpoint.approvalReady === "merge");
         return agentStep(runtime, context, run, deps, definition, stage, checkpoint);
       },
