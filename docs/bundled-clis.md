@@ -92,6 +92,15 @@ Change the version in `scripts/wrangler/package.json`, regenerate the lock with
 `scripts/smoke-harness-clis.sh`, and run the tests and the Docker smoke jobs. The packaging test fails if the manifest,
 the lockfile and the smoke script disagree. Check the new version's engine requirement against `NODE_VERSION`.
 
+## Camoufox is not a protected credential browser
+
+The sandbox image also includes `camoufox-cli@0.7.6`. It runs with the channel
+shell's authority and exposes JavaScript evaluation, screenshots and cookie
+export. Do not use a password-filling wrapper or ordinary OpenBao imports to
+claim passwords/sessions are hidden from that channel's tools. The isolated
+credential/session manager requested in issue #10 is **not implemented**; see
+[the security investigation and broker prerequisite](browser-credentials-security.md).
+
 ## Runtime authentication only
 
 CLI installation does **not** enable `bash`/`exec`, broaden command allowlists,
