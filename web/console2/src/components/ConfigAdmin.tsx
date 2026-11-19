@@ -1,14 +1,15 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ConnectorSettings, type ConnectorForm } from "./ConnectorSettings";
+import { RecentConversationSettings, type RecentForm } from "./RecentConversationSettings";
 import { SecretAdmin } from "./SecretAdmin";
 import { Button } from "@/components/ui/button";
 import { apiUrl, ApiError } from "@/lib/api";
 
 const YamlEditor = lazy(() => import("@/components/YamlEditor").then((module) => ({ default: module.YamlEditor })));
 
-type Fields = Record<string, string | undefined>;
-interface Form { defaults: Fields; channels: (Fields & { key: string })[]; connectors: ConnectorForm[] }
-interface Edit { path: string[]; value?: string | string[]; remove?: boolean; yaml?: string; create?: boolean }
+type Fields = { model?: string; thinkingLevel?: string; description?: string; preferences?: string; recentConversations: RecentForm };
+interface Form { defaults: Fields; channels: (Fields & { key: string })[]; connectors: ConnectorForm[]; recentConversationDefaults: Record<string, unknown> }
+interface Edit { path: string[]; value?: unknown; remove?: boolean; yaml?: string; create?: boolean }
 interface Snapshot { text: string; revision: string }
 interface Saved { saved: boolean; applied: boolean; revision: string; warnings: string[] }
 async function request<T>(body?: Record<string, unknown>): Promise<T> {
@@ -80,7 +81,14 @@ export function ConfigAdmin({ active }: { active: boolean }) {
   async function draft(extra: Edit[] = []): Promise<string> {
     const pending = [...edits, ...(connectorYaml === undefined ? [] : [{ path: ["connectors", connector], yaml: connectorYaml }]), ...extra];
     if (!pending.length) return text;
-    const patched = await request<Form & { text: string }>({ operation: "patch", text, edits: pending });
+    const typed = pending.map((edit) => {
+      if (edit.path.at(-2) !== "recentConversations" || !["debounceSeconds", "maxThreads", "maxTranscriptChars"].includes(edit.path.at(-1)!) || edit.remove) return edit;
+      if (!(typeof edit.value === "number" || typeof edit.value === "string" && /^\d+$/.test(edit.value)) || !Number.isSafeInteger(Number(edit.value)) || Number(edit.value) <= 0) {
+        throw new Error("recentConversations." + edit.path.at(-1) + " must be a positive integer.");
+      }
+      return { ...edit, value: Number(edit.value) };
+    });
+    const patched = await request<Form & { text: string }>({ operation: "patch", text, edits: typed });
     setText(patched.text); setEdits([]); setConnectorYaml(undefined); setForm(patched);
     return patched.text;
   }
@@ -115,6 +123,15 @@ export function ConfigAdmin({ active }: { active: boolean }) {
     setEdits((previous) => [...previous.filter((e) => JSON.stringify(e.path) !== JSON.stringify(path)), { path, ...(value === undefined ? { remove: true } : { value }) }]);
     setForm((previous) => previous && (path[0] === "defaults" ? { ...previous, defaults: { ...previous.defaults, [path[1]!]: value } }
       : { ...previous, channels: previous.channels.map((c) => c.key === path[1] ? { ...c, [path[2]!]: value } : c) }));
+  }
+  function changeRecent(scope: string[], key: string, value?: unknown) {
+    setMessage(""); setError("");
+    const path = [...scope, "recentConversations", key];
+    setEdits((previous) => [...previous.filter((e) => JSON.stringify(e.path) !== JSON.stringify(path)), { path, ...(value === undefined ? { remove: true } : { value }) }]);
+    const update = (fields: Fields): Fields => ({ ...fields, recentConversations: { ...fields.recentConversations,
+      values: { ...fields.recentConversations.values, [key]: value }, unsupported: fields.recentConversations.unsupported.filter((k) => k !== key) } });
+    setForm((previous) => previous && (scope[0] === "defaults" ? { ...previous, defaults: update(previous.defaults) }
+      : { ...previous, channels: previous.channels.map((c) => c.key === scope[1] ? { ...c, ...update(c) } : c) }));
   }
   async function switchMode(next: "raw" | "forms") {
     if (next === mode) return;
@@ -174,14 +191,19 @@ export function ConfigAdmin({ active }: { active: boolean }) {
             <Field label="Default thinking level" value={form.defaults.thinkingLevel} fallback="medium" choices={thinking} onChange={(v) => change(["defaults", "thinkingLevel"], v)} />
           </div>
           <Field label="Default preferences" value={form.defaults.preferences} multiline onChange={(v) => change(["defaults", "preferences"], v)} />
+          <RecentConversationSettings label="Default" data={form.defaults.recentConversations} builtins={form.recentConversationDefaults}
+            change={(key, value) => changeRecent(["defaults"], key, value)} />
           <h2 className="font-semibold">Existing channels</h2>
           <label className="block space-y-2 text-sm">Channel<select aria-label="Channel" className={inputClass} value={channel} onChange={(e) => setChannel(e.target.value)}>{form.channels.map((c) => <option key={c.key}>{c.key}</option>)}</select></label>
-          {selected ? <div className="grid gap-3 sm:grid-cols-2">
+          {selected ? <><div className="grid gap-3 sm:grid-cols-2">
             <Field label="Channel model" value={selected.model} fallback={form.defaults.model ?? "deepseek-v4-pro"} onChange={(v) => change(["channels", channel, "model"], v)} />
             <Field label="Channel thinking level" value={selected.thinkingLevel} fallback={form.defaults.thinkingLevel ?? "medium"} choices={thinking} onChange={(v) => change(["channels", channel, "thinkingLevel"], v)} />
             <Field label="Description" value={selected.description} multiline onChange={(v) => change(["channels", channel, "description"], v)} />
             <Field label="Preferences" value={selected.preferences} fallback={form.defaults.preferences} multiline onChange={(v) => change(["channels", channel, "preferences"], v)} />
-          </div> : <p className="text-sm text-muted-foreground">No configured channels. Add them in raw YAML.</p>}
+          </div>
+            <RecentConversationSettings label="Channel" data={selected.recentConversations} inherited={form.defaults.recentConversations} builtins={form.recentConversationDefaults}
+              change={(key, value) => changeRecent(["channels", channel], key, value)} />
+          </> : <p className="text-sm text-muted-foreground">No configured channels. Add them in raw YAML.</p>}
         </>}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void run(() => validate(false))}>Validate</Button>
