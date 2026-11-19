@@ -3,6 +3,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { Document, isMap, isNode, isScalar, parse as parseYaml, parseDocument } from "yaml";
 import { parseConfigText } from "./load.ts";
+import { RecentConversationsSchema } from "./schema.ts";
 import { assertWritable, audit, backUp, replaceAtomically, serialised, type ReloadResult } from "./edit.ts";
 import { expectedTree, normalizeTree, patchText, type TextEdit } from "./edit-text.ts";
 
@@ -55,10 +56,21 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 function hasPath(tree: unknown, path: string[]): boolean {
   return path.length === 0 || record(tree) && Object.hasOwn(tree, path[0]!) && hasPath(tree[path[0]!], path.slice(1));
 }
-const fields = ["model", "thinkingLevel", "description", "preferences"];
-function values(v: unknown): Record<string, string> {
-  if (!record(v)) return {};
-  return Object.fromEntries(fields.flatMap((k) => typeof v[k] === "string" ? [[k, v[k]]] : []));
+const fields = ["model", "thinkingLevel", "description", "preferences"] as const;
+const recentDefaults = RecentConversationsSchema.parse({});
+const recentFields = Object.keys(recentDefaults);
+function validRecentValue(key: string, value: unknown): boolean {
+  return recentFields.includes(key) && value !== undefined && RecentConversationsSchema.safeParse({ [key]: value }).success;
+}
+function values(v: unknown) {
+  const data = record(v) ? v : {};
+  const recent = data.recentConversations;
+  const entries = Object.fromEntries(recentFields.flatMap((key) => record(recent) && Object.hasOwn(recent, key) ? [[key, recent[key]]] : []));
+  return {
+    ...Object.fromEntries(fields.flatMap((k) => typeof data[k] === "string" ? [[k, data[k] as string]] : [])) as Partial<Record<(typeof fields)[number], string>>,
+    recentConversations: { basic: recent == null || record(recent), values: entries,
+      unsupported: Object.keys(entries).filter((key) => !validRecentValue(key, entries[key])) },
+  };
 }
 /** Match parsed object/string path identities, as the text patcher does (YAML keys may be numeric). */
 function nodeAtStringPath(doc: Document, path: string[]): unknown {
@@ -92,6 +104,7 @@ export function inspectOperatorConfig(text: string) {
           || (data.transport === "http" && typeof data.url === "string" && (data.headers === undefined || strings(data.headers))),
       };
     }),
+    recentConversationDefaults: recentDefaults,
     defaults: values(raw.defaults),
     channels: Object.entries(record(raw.channels) ? raw.channels : {}).map(([key, value]) => ({ key, ...values(value) })),
   };
@@ -138,8 +151,14 @@ export function patchOperatorConfig(text: string, edits: OperatorEdit[]): string
       next = patchConnectorYaml(patched, p, edit.yaml);
     } else {
       const scalar = edit.remove || typeof edit.value === "string";
-      const allowed = scalar && (p.length === 2 && p[0] === "defaults" && ["model", "thinkingLevel", "preferences"].includes(p[1]!)
-        || p.length === 3 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && fields.includes(p[2]!))
+      const recentPath = p.length === 3 && p[0] === "defaults" && p[1] === "recentConversations"
+        || p.length === 4 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && p[2] === "recentConversations";
+      if (recentPath && recentFields.includes(p.at(-1)!) && !edit.remove && !validRecentValue(p.at(-1)!, edit.value)) {
+        throw new OperatorConfigError(422, "recentConversations." + p.at(-1) + " requires " + (p.at(-1) === "enabled" ? "a boolean." : p.at(-1) === "model" ? "a string." : "a positive integer."));
+      }
+      const allowed = recentPath && recentFields.includes(p.at(-1)!) && (edit.remove || validRecentValue(p.at(-1)!, edit.value))
+        || scalar && (p.length === 2 && p[0] === "defaults" && ["model", "thinkingLevel", "preferences"].includes(p[1]!)
+        || p.length === 3 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && fields.some((field) => field === p[2]))
         || entry && !!connector && edit.remove
         || p[0] === "connectors" && !!connector && (
           p.length === 3 && scalar && (connector.transport === "stdio" && p[2] === "command" || connector.transport === "http" && p[2] === "url")

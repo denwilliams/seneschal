@@ -27,9 +27,13 @@ test("the locally bundled YAML editor works under the real server's CSP", async 
   await expect.poll(() => rawText(page)).toBe(ADMIN_CONFIG);
   // An inspect response is all the basic-settings mode needs to unmount and
   // remount the raw editor; keep checking CSP when the stylesheet is reused.
-  await page.route("**/api/v1/config", (route) => route.fulfill({ json: { defaults: {}, channels: [], connectors: [] } }));
+  await page.route("**/api/v1/config", (route) => route.fulfill({ json: {
+    defaults: { recentConversations: { basic: true, values: {}, unsupported: [] } }, channels: [], connectors: [],
+    recentConversationDefaults: { enabled: true, debounceSeconds: 60, maxThreads: 10, model: "deepseek-flash", maxTranscriptChars: 8000 },
+  } }));
   await page.getByRole("button", { name: "Basic settings", exact: true }).click();
   await expect(rawEditor(page)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Default recent conversations", exact: true })).toContainText("Inherited built-in default: 60");
   await page.getByRole("button", { name: "Raw YAML", exact: true }).click();
   await expect.poll(() => rawText(page)).toBe(ADMIN_CONFIG);
   await expect(page.locator(".cm-editor")).toHaveCSS("display", "flex");
