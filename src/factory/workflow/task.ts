@@ -629,7 +629,7 @@ export function makeFactoryTask(getDeps: () => FactoryDeps | undefined): Factory
     }
     const fail = (message: string) => change(runtime, context, run.runId, (doc, now) => {
       const attempt = lastAttempt(findStage(doc, stage.name))!;
-      attempt.summary = summaryOf(message); attempt.report = message;
+      attempt.summary = summaryOf(message); attempt.report = bounded(message, REPORT_CHARS); attempt.durationMs = now - attempt.startedAt;
       return park(doc, stage.name, message, now);
     });
     const timeout = () => fail(saved.runId
@@ -678,7 +678,7 @@ export function makeFactoryTask(getDeps: () => FactoryDeps | undefined): Factory
       });
     } catch (error) {
       if (runtime.signal.aborted) await awaitWithContext(never<void>(), context);
-      return fail(`GitHub Actions monitoring API/access failure: ${String(error)}${saved.url ? ` — ${saved.url}` : ""}`);
+      return fail(`GitHub Actions monitoring API/access failure${saved.url ? ` — ${saved.url}` : ""}: ${String(error)}`);
     }
   }
 

@@ -123,6 +123,17 @@ test("engine surfaces API/access failures and a hung request, never success", as
   }
 });
 
+test("API errors keep selected-run links visible and bound persisted diagnostics", async t => {
+  let calls = 0;
+  const { p, runId } = await setup(t, async () => {
+    if (++calls > 1) throw new Error("x".repeat(10_000));
+    return { workflowId: 9, run: observed({ status: "queued", conclusion: null }) };
+  }, { pollIntervalSeconds: 1 });
+  const run = await reach(p, runId, ["needs_decision"], "failed");
+  assert.match(run.reason, /https:\/\/github.com\/acme\/app\/actions\/runs\/22/);
+  assert.ok(stageOf(run, "deploy").attempts[0]!.report.length <= 6000);
+});
+
 test("engine rejects a changed attempt instead of accepting a rerun's success", async t => {
   let count = 0;
   const { p, runId } = await setup(t, async () => ({ workflowId: 9, run: observed(++count === 1 ? { status: "in_progress", conclusion: null } : { attempt: 2 }) }), { pollIntervalSeconds: 1 });
