@@ -29,10 +29,13 @@ test("the locally bundled YAML editor works under the real server's CSP", async 
   // remount the raw editor; keep checking CSP when the stylesheet is reused.
   await page.route("**/api/v1/config", (route) => route.fulfill({ json: {
     defaults: { recentConversations: { basic: true, values: {}, unsupported: [] } }, channels: [], connectors: [],
+    schedules: { basic: true, present: false, defaultTimezone: "UTC" },
     recentConversationDefaults: { enabled: true, debounceSeconds: 60, maxThreads: 10, model: "deepseek-flash", maxTranscriptChars: 8000 },
   } }));
   await page.getByRole("button", { name: "Basic settings", exact: true }).click();
   await expect(rawEditor(page)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Scheduling defaults", exact: true })).toContainText("built-in default: UTC");
+  await expect(page.getByLabel("Default scheduling timezone", { exact: true })).toHaveAttribute("placeholder", "UTC");
   await expect(page.getByRole("region", { name: "Default recent conversations", exact: true })).toContainText("Inherited built-in default: 60");
   await page.getByRole("button", { name: "Raw YAML", exact: true }).click();
   await expect.poll(() => rawText(page)).toBe(ADMIN_CONFIG);

@@ -56,6 +56,12 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 function hasPath(tree: unknown, path: string[]): boolean {
   return path.length === 0 || record(tree) && Object.hasOwn(tree, path[0]!) && hasPath(tree[path[0]!], path.slice(1));
 }
+/** Match scheduled-task runtime validation without expanding configuration references. */
+function validTimezone(value: unknown): value is string {
+  if (typeof value !== "string" || !value.length) return false;
+  try { new Intl.DateTimeFormat("en", { timeZone: value }).format(); return true; }
+  catch { return false; }
+}
 const fields = ["model", "thinkingLevel", "description", "preferences"] as const;
 const recentDefaults = RecentConversationsSchema.parse({});
 const recentFields = Object.keys(recentDefaults);
@@ -104,6 +110,18 @@ export function inspectOperatorConfig(text: string) {
           || (data.transport === "http" && typeof data.url === "string" && (data.headers === undefined || strings(data.headers))),
       };
     }),
+    schedules: (() => {
+      const parent = nodeAtStringPath(doc, ["schedules"]);
+      const zone = nodeAtStringPath(doc, ["schedules", "timezone"]);
+      const present = hasPath(raw, ["schedules", "timezone"]);
+      const value = record(raw.schedules) ? raw.schedules.timezone : undefined;
+      // Flow edits rewrite siblings; anchors/aliases and references need explicit operator intent.
+      const basic = (doc.contents === null || isMap(doc.contents) && !doc.contents.flow)
+        && (parent === undefined || isScalar(parent) && parent.value === null && parent.source === "" && !parent.anchor
+          || isMap(parent) && !parent.flow && !parent.anchor)
+        && (!present || isScalar(zone) && !zone.anchor && typeof value === "string" && !value.includes("${"));
+      return { basic, present, ...(typeof value === "string" ? { timezone: value } : {}), defaultTimezone: "UTC" };
+    })(),
     recentConversationDefaults: recentDefaults,
     defaults: values(raw.defaults),
     channels: Object.entries(record(raw.channels) ? raw.channels : {}).map(([key, value]) => ({ key, ...values(value) })),
@@ -150,13 +168,19 @@ export function patchOperatorConfig(text: string, edits: OperatorEdit[]): string
       expected = { path: p, value };
       next = patchConnectorYaml(patched, p, edit.yaml);
     } else {
+      const timezonePath = p.length === 2 && p[0] === "schedules" && p[1] === "timezone";
+      if (timezonePath) {
+        if (edit.remove && !hasPath(parseYaml(patched), p)) continue;
+        if (!form.schedules.basic) throw new OperatorConfigError(422, "schedules.timezone uses a reference, alias, or unsupported YAML shape. Edit schedules explicitly in Raw YAML (use a block mapping with a literal timezone for Basic settings).");
+        if (!edit.remove && !validTimezone(edit.value)) throw new OperatorConfigError(422, "schedules.timezone requires a non-empty timezone accepted by the runtime, such as UTC or Australia/Sydney.");
+      }
       const scalar = edit.remove || typeof edit.value === "string";
       const recentPath = p.length === 3 && p[0] === "defaults" && p[1] === "recentConversations"
         || p.length === 4 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && p[2] === "recentConversations";
       if (recentPath && recentFields.includes(p.at(-1)!) && !edit.remove && !validRecentValue(p.at(-1)!, edit.value)) {
         throw new OperatorConfigError(422, "recentConversations." + p.at(-1) + " requires " + (p.at(-1) === "enabled" ? "a boolean." : p.at(-1) === "model" ? "a string." : "a positive integer."));
       }
-      const allowed = recentPath && recentFields.includes(p.at(-1)!) && (edit.remove || validRecentValue(p.at(-1)!, edit.value))
+      const allowed = timezonePath || recentPath && recentFields.includes(p.at(-1)!) && (edit.remove || validRecentValue(p.at(-1)!, edit.value))
         || scalar && (p.length === 2 && p[0] === "defaults" && ["model", "thinkingLevel", "preferences"].includes(p[1]!)
         || p.length === 3 && p[0] === "channels" && form.channels.some((c) => c.key === p[1]) && fields.some((field) => field === p[2]))
         || entry && !!connector && edit.remove
@@ -167,7 +191,11 @@ export function patchOperatorConfig(text: string, edits: OperatorEdit[]): string
       if (!allowed) throw new OperatorConfigError(400, "That field has no form control; use raw YAML.");
       // Removing a never-persisted form entry must not invent empty parent mappings.
       if (edit.remove && !hasPath(parseYaml(patched), p)) continue;
-      next = patchText(patched, [edit]);
+      try { next = patchText(patched, [edit]); }
+      catch (error) {
+        if (timezonePath) throw new OperatorConfigError(422, "Cannot safely patch schedules.timezone; edit it in Raw YAML. " + (error instanceof Error ? error.message : "Unsupported YAML shape."));
+        throw error;
+      }
     }
     if (!isDeepStrictEqual(normalizeTree(parseYaml(next)), normalizeTree(expectedTree(patched, [expected])))) {
       throw new OperatorConfigError(422, "A YAML alias would also change another setting. Edit it explicitly in raw YAML instead.");
