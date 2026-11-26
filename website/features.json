@@ -379,13 +379,14 @@
       {
         "id": "admin",
         "title": "Configuration & secret administration",
-        "description": "Edit configuration with validation, backups and reload warnings. Basic settings includes multiline preferences and all five rolling thread-summary settings at global-default and existing-channel scope, with individual overrides and inheritance. Summaries are orientation, not durable memory; Raw YAML shares the same draft. Secret administration is write-only with supervised restart; optional scoped configurator roles apply separate runtime-enforced edit policies.",
+        "description": "Edit configuration with validation, backups and reload warnings. Basic settings includes multiline preferences and all five rolling thread-summary settings at global-default and existing-channel scope, with individual overrides and inheritance. Summaries are orientation, not durable memory. Basic settings also edits the default scheduling timezone (unset: UTC), without retiming existing tasks; timer changes may require restart. Raw YAML shares the same draft. Secret administration is write-only with supervised restart; optional scoped configurator roles apply separate runtime-enforced edit policies.",
         "sources": [
           "src/console2/admin.ts",
           "src/config/operator.ts",
           "web/console2/src/components/ConfigAdmin.tsx",
           "web/console2/src/components/RecentConversationSettings.tsx",
           "src/config/operator-recent-conversations.test.ts",
+          "src/config/operator-timezone.test.ts",
           "src/console2/secrets.ts",
           "src/agent/configurator-tools.ts",
           "docs/secret-admin.md"

@@ -8,7 +8,7 @@ import { apiUrl, ApiError } from "@/lib/api";
 const YamlEditor = lazy(() => import("@/components/YamlEditor").then((module) => ({ default: module.YamlEditor })));
 
 type Fields = { model?: string; thinkingLevel?: string; description?: string; preferences?: string; recentConversations: RecentForm };
-interface Form { defaults: Fields; channels: (Fields & { key: string })[]; connectors: ConnectorForm[]; recentConversationDefaults: Record<string, unknown> }
+interface Form { schedules: { basic: boolean; present: boolean; timezone?: string; defaultTimezone: string }; defaults: Fields; channels: (Fields & { key: string })[]; connectors: ConnectorForm[]; recentConversationDefaults: Record<string, unknown> }
 interface Edit { path: string[]; value?: unknown; remove?: boolean; yaml?: string; create?: boolean }
 interface Snapshot { text: string; revision: string }
 interface Saved { saved: boolean; applied: boolean; revision: string; warnings: string[] }
@@ -122,6 +122,7 @@ export function ConfigAdmin({ active }: { active: boolean }) {
     setMessage(""); setError("");
     setEdits((previous) => [...previous.filter((e) => JSON.stringify(e.path) !== JSON.stringify(path)), { path, ...(value === undefined ? { remove: true } : { value }) }]);
     setForm((previous) => previous && (path[0] === "defaults" ? { ...previous, defaults: { ...previous.defaults, [path[1]!]: value } }
+      : path[0] === "schedules" ? { ...previous, schedules: { ...previous.schedules, timezone: value, present: value !== undefined } }
       : { ...previous, channels: previous.channels.map((c) => c.key === path[1] ? { ...c, [path[2]!]: value } : c) }));
   }
   function changeRecent(scope: string[], key: string, value?: unknown) {
@@ -185,6 +186,14 @@ export function ConfigAdmin({ active }: { active: boolean }) {
             change={(path, value) => { changeConnector(path, value); }}
             add={(name, transport) => void run(() => addConnector(name, transport))}
             remove={() => void run(removeConnector)} />
+          <section aria-label="Scheduling defaults" className="space-y-3">
+            <h2 className="font-semibold">Scheduling defaults</h2>
+            <p className="text-sm text-muted-foreground">Global default timezone for schedules that do not specify one. This does not rewrite existing tasks or their explicit timezones. Timer changes may require a restart.</p>
+            {form.schedules.basic ? <Field label="Default scheduling timezone" value={form.schedules.timezone} fallback={form.schedules.defaultTimezone}
+              onChange={(value) => change(["schedules", "timezone"], value)} />
+              : <p className="break-words text-sm">Scheduling timezone{form.schedules.timezone !== undefined ? ": " + form.schedules.timezone : ""} uses a reference, alias, or unsupported YAML shape. Edit schedules explicitly in Raw YAML; use a block mapping with a literal timezone to enable this control.</p>}
+            <p className="text-xs text-muted-foreground">Unset uses the built-in default: UTC. Enter a runtime-supported timezone, such as UTC or Australia/Sydney.</p>
+          </section>
           <h2 className="font-semibold">Global defaults</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Default model" value={form.defaults.model} fallback="deepseek-v4-pro" onChange={(v) => change(["defaults", "model"], v)} />
